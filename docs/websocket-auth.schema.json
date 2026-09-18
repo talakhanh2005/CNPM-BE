@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "const": "AUTH",
+      "title": "Type",
+      "type": "string"
+    },
+    "token": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Token",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "token"
+  ],
+  "title": "AuthMessage",
+  "type": "object"
+}

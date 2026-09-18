@@ -1,0 +1,22 @@
+=== BE-01 Test Log ===
+teacher_id = 853db987-4aa8-4711-9aea-8c16ec317f36
+teacher_email = teacher@example.com
+teacher_password = SecurePass123!
+
+student_id = 8024beca-9286-4604-9b0a-e0358b689439
+student_email = student1@example.com
+student_password = 1235678
+
+
+
+teacher_id = 975b339c-008c-43b4-b5a4-cc088314c593
+teacher_email = teacher1@example.com
+teacher_password = 12345678
+
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5NzViMzM5Yy0wMDhjLTQzYjQtYjVhNC1jYzA4ODMxNGM1OTMiLCJ0eXBlIjoiYWNjZXNzIiwianRpIjoiM2U5NDliMTEtYjlmMC00OWNmLWIzYmUtMjllMDliMGUzYjI3IiwiaWF0IjoxNzg5NTI3MTk3LCJleHAiOjE3ODk1MjgwOTcsImlzcyI6ImZhY2UtZW1vdGlvbiIsImF1ZCI6ImNsYXNzcm9vbSJ9.zE2NykIhrJj9ITzxOBf9qA92ATE8fYSbW1kfGIj0VXE
+
+
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI4MDI0YmVjYS05Mjg2LTQ2MDQtOWIwYS1lMDM1OGI2ODk0MzkiLCJ0eXBlIjoiYWNjZXNzIiwianRpIjoiYTM1NGI0YzgtN2MyZS00NzAwLWFkOWQtOGYwMzNhODViZmE3IiwiaWF0IjoxNzg5NTI3MjM1LCJleHAiOjE3ODk1MjgxMzUsImlzcyI6ImZhY2UtZW1vdGlvbiIsImF1ZCI6ImNsYXNzcm9vbSJ9.CCDAvPVa3-xovwKE3myiq1aisVR7oHdxOhOT2ASjDqk      
+
+id : 11068a29-eb26-4055-a79b-4d6f5e664de6
+code : 228A23A88A

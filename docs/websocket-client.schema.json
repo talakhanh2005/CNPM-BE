@@ -1,0 +1,205 @@
+{
+  "$defs": {
+    "DescriptionMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "OFFER",
+            "ANSWER"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "target_id": {
+          "maxLength": 36,
+          "minLength": 1,
+          "title": "Target Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SDP"
+        }
+      },
+      "required": [
+        "type",
+        "target_id",
+        "payload"
+      ],
+      "title": "DescriptionMessage",
+      "type": "object"
+    },
+    "ICE": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate": {
+          "maxLength": 8192,
+          "title": "Candidate",
+          "type": "string"
+        },
+        "sdpMid": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sdpmid"
+        },
+        "sdpMLineIndex": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sdpmlineindex"
+        }
+      },
+      "required": [
+        "candidate"
+      ],
+      "title": "ICE",
+      "type": "object"
+    },
+    "ICEMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "ICE_CANDIDATE",
+          "title": "Type",
+          "type": "string"
+        },
+        "target_id": {
+          "maxLength": 36,
+          "minLength": 1,
+          "title": "Target Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ICE"
+        }
+      },
+      "required": [
+        "type",
+        "target_id",
+        "payload"
+      ],
+      "title": "ICEMessage",
+      "type": "object"
+    },
+    "JoinMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "JOIN",
+            "LEAVE"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "JoinMessage",
+      "type": "object"
+    },
+    "SDP": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "offer",
+            "answer"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "sdp": {
+          "maxLength": 60000,
+          "minLength": 1,
+          "title": "Sdp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sdp"
+      ],
+      "title": "SDP",
+      "type": "object"
+    },
+    "StatusMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "CAMERA_STATUS",
+            "MIC_STATUS"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/StatusPayload"
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "title": "StatusMessage",
+      "type": "object"
+    },
+    "StatusPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "StatusPayload",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "ANSWER": "#/$defs/DescriptionMessage",
+      "CAMERA_STATUS": "#/$defs/StatusMessage",
+      "ICE_CANDIDATE": "#/$defs/ICEMessage",
+      "JOIN": "#/$defs/JoinMessage",
+      "LEAVE": "#/$defs/JoinMessage",
+      "MIC_STATUS": "#/$defs/StatusMessage",
+      "OFFER": "#/$defs/DescriptionMessage"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/JoinMessage"
+    },
+    {
+      "$ref": "#/$defs/DescriptionMessage"
+    },
+    {
+      "$ref": "#/$defs/ICEMessage"
+    },
+    {
+      "$ref": "#/$defs/StatusMessage"
+    }
+  ]
+}
