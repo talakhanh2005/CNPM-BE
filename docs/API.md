@@ -69,6 +69,10 @@ Contract/mô hình: `auth/model.py`, `auth/schema.py`; nghiệp vụ ở `auth/s
 | POST /meetings/M/leave | Member/owner | Không | MeetingOut |
 | POST /meetings/M/start | Owner | Không | MeetingOut |
 | POST /meetings/M/end | Owner | Không | MeetingOut |
+| GET /meetings | Teacher | Query offset, limit, mode | Lịch sử của chính giáo viên, gồm mode và analysis_status |
+| GET /meetings/M/ice-config | Active member | Không | iceServers, turn_configured |
+
+POST /meetings nhận thêm `mode="realtime"` (mặc định) hoặc `mode="after_session"`. Mode tách biệt với lifecycle `status`. Một phòng có một teacher chủ phòng và đúng một slot student, giữ cùng học viên trong suốt vòng đời phòng kể cả khi học viên leave. Học viên thứ hai bị `409 ROOM_FULL`; tạo phòng mới cho học viên khác. Phòng có thể tạm chỉ có một người khi chờ người còn lại kết nối.
 
 Response mẫu sau student join:
 
@@ -87,7 +91,7 @@ Response mẫu sau student join:
 }
 ```
 
-Create có message `Meeting created`; các action khác `OK`. Leave đổi participant thành `left`, set left_at; không xóa record. Join lại giữ record, cập nhật joined_at/left_at. Chỉ ongoing cho join; scheduled cần owner gọi start. End set `status=ended`, ended_at, đánh dấu toàn bộ left và đóng WS. Teacher mất kết nối/rời không tự kết thúc meeting; owner dùng end. Reconnect cần REST join lại rồi mở WS mới.
+Create có message `Meeting created`; các action khác `OK`. Leave đổi participant thành `left`, set left_at; không xóa record. Join lại giữ record, cập nhật joined_at/left_at. Chỉ ongoing cho join; scheduled cần owner gọi start. End set `status=ended`, ended_at, đánh dấu toàn bộ left và đóng WS. Mất kết nối hoặc refresh giữ membership; mở WS mới bằng token còn hiệu lực. Chỉ cần REST join lại sau khi đã chủ động LEAVE.
 
 Contract/mô hình: `meetings/model.py`, `meetings/schema.py`. Test: role student không tạo được; scheduled chưa join được; teacher khác không start; ended không join; leave/rejoin giữ đúng số record.
 
@@ -105,7 +109,7 @@ Server xác thực và trả presence:
 {"success":true,"data":{"type":"JOIN","sender_id":"S","peers":[{"user_id":"T","role":"teacher"}]},"message":"OK"}
 ```
 
-Các peer còn lại nhận `data={"type":"JOIN","sender_id":"S","role":"student"}`. Một user tối đa một socket/phòng; socket thứ hai nhận `ALREADY_CONNECTED` rồi đóng, không đá socket cũ.
+Các peer còn lại nhận `data={"type":"JOIN","sender_id":"S","role":"student"}`. Một user tối đa một socket trong API process. Socket mới thay socket cũ; socket cũ đóng code `4001`. FE không tự reconnect socket đã bị thay thế, tránh hai tab giành kết nối liên tục. Cleanup socket cũ không xóa socket mới hoặc thay đổi membership.
 
 ### Client message mẫu
 
@@ -133,7 +137,7 @@ Disconnect/LEAVE broadcast:
 {"success":true,"data":{"type":"LEAVE","sender_id":"S"},"message":"OK"}
 ```
 
-Owner kết thúc phòng: `data={"type":"MEETING_ENDED"}` rồi close. JWT hết hạn trong socket sẽ bị đóng; FE refresh rồi REST join, reconnect. Origin trình duyệt phải thuộc CORS_ORIGINS. Giới hạn 30 message/giây/socket, 64 KiB/message và 100 connection/phòng mặc định. Binary signaling bị từ chối. Client JSON không bọc envelope; server JSON luôn bọc.
+Owner kết thúc phòng: `data={"type":"MEETING_ENDED"}` rồi close. JWT hết hạn trong socket sẽ bị đóng; FE refresh token rồi reconnect. Origin trình duyệt phải thuộc CORS_ORIGINS. Giới hạn 30 message/giây/socket, 1 MiB/message và 2 connection/phòng. Frame có giới hạn riêng 3 FPS mặc định. Binary message bị từ chối. Client JSON không bọc envelope; server JSON luôn bọc. Uvicorn cần `--ws-max-size 1048576`.
 
 Contract: `signaling/schema.py`, schema export `websocket-client.schema.json` (AUTH riêng trong mô tả trên). Storage của module là ConnectionRepository trong bộ nhớ, ConnectionManager tái sử dụng ở BE-06. Test cover OFFER/ANSWER/ICE, trạng thái camera/mic, disconnect, spoof sender, target ngoài phòng và duplicate connection.
 
@@ -186,6 +190,22 @@ URL ký có quyền truy cập cho người giữ URL tới khi hết hạn. FE 
 
 Contract: `recordings/model.py`, `recordings/schema.py`, `integrations/storage.py`. Tests cover happy path bằng FakeStorage, SDK RAM buffer contract, student/stranger denied, empty/body lớn, type sai, duration quá dài và cleanup khi timeout.
 
+Với `mode=after_session`, upload tự enqueue và trả recording `status=pending`; giáo viên chỉ cần xem kết quả qua report. FE vẫn phải ghi video bằng MediaRecorder hoặc nhận video từ hệ thống ghi hình rồi upload endpoint trên: signaling không chứa media nên BE không thể tự quay lại buổi học. Cần chạy `python -m app.worker`. Worker tự phục hồi video đã lưu nhưng chưa có job nếu API dừng giữa hai bước. Lịch sử `GET /meetings` có `analysis_status=awaiting_recording/pending/processing/completed/failed`, `recording_statuses` và `report_url`; không yêu cầu FE phát video.
+
+## Tài liệu buổi học
+
+| Method/path | Quyền | Dữ liệu |
+|---|---|---|
+| POST /meetings/M/materials?filename=lesson.pdf | Teacher owner | Raw file body, Content-Type đúng định dạng; trả metadata 201 |
+| GET /meetings/M/materials?offset=0&limit=50 | Owner/participant | Danh sách tài liệu, không trả public_id |
+| GET /materials/ID/download | Owner/participant | URL tải có chữ ký, expires_in=300 |
+
+Hỗ trợ PDF, PPT/PPTX, DOC/DOCX, XLS/XLSX và TXT UTF-8. Giới hạn mặc định 20 MiB qua `MAX_DOCUMENT_BYTES`; kiểm tra extension, MIME và chữ ký/container; không nhận đường dẫn trong filename. Upload là raw body, không phải multipart. Asset Cloudinary dùng `resource_type=raw`, `type=authenticated`; URL ký chỉ cấp sau khi kiểm tra membership. FE có thể upload trực tiếp một `File` làm body fetch và truyền tên qua `encodeURIComponent(file.name)`.
+
+## STUN/TURN cho FE
+
+Đặt `ICE_SERVERS` trong môi trường backend (ví dụ trong `.env.example`). Sau khi join, FE lấy `GET /meetings/M/ice-config` và tạo `new RTCPeerConnection({iceServers: response.data.iceServers})`. `turn_configured` chỉ xác nhận có URL TURN trong cấu hình, không phải đã kiểm tra được kết nối TURN. Không có cấu hình hạ tầng mặc định. Chỉ STUN có thể không đủ khi NAT khắt khe; cần TURN hợp lệ và kiểm thử thực tế hai mạng khác nhau. Có thể ép `iceTransportPolicy: "relay"` trong bài test FE để kiểm chứng TURN. Repo này không chứa FE nên việc truyền iceServers vào peer connection cần phía FE xác nhận.
+
 ## 5. BE-05 Recorded AI analysis
 
 | Method/path | Quyền | Body | Response |
@@ -207,27 +227,32 @@ Contract: `analysis/model.py`, `analysis/schema.py`, `integrations/ai_schema.py`
 
 ## 6. BE-06 Real-time emotion
 
-`POST /meetings/M/frames`, role student, đã joined và ongoing. Body:
+Kênh chính: WebSocket `/ws/meetings/M`, sau AUTH. Chỉ student có membership joined trong phòng ongoing, mode realtime được gửi:
 
 ```json
-{"frame_base64":"<base64-JPEG-or-PNG-without-data-prefix>","content_type":"image/jpeg"}
+{"type":"FRAME","payload":{"frame_id":"frame-42","timestamp":"2026-09-25T10:00:00Z","frame_base64":"<base64-JPEG-or-PNG-without-data-prefix>","content_type":"image/jpeg"}}
 ```
 
-Không gửi student_id, server gắn từ JWT. Default 1 frame/giây/student/phòng, ảnh <=512 KiB, tối đa 2.073.600 pixel. JSON payload <=1 MiB. Ảnh invalid nhận 422, quá size 413, quá tần suất/capacity 429. Nếu leave/end trong lúc AI đang xử lý, kết quả không được ghi và trả 409.
+`POST /meetings/M/frames` vẫn có để fallback; body là đối tượng `payload` ở trên. Hai kênh dùng chung rate limit: mặc định 3 FPS (cách nhau ít nhất 333.34 ms), cấu hình 2–5 FPS. Không gửi student_id, server gắn từ JWT. Ảnh <=512 KiB, tối đa 2.073.600 pixel; JSON <=1 MiB. Ảnh sai trả 422, quá size 413, vượt tần suất/capacity 429. Nếu leave/end trong khi AI xử lý thì kết quả không được ghi. AI chạy trong task riêng, không chặn OFFER/ANSWER/ICE.
+
+Teacher chỉ nhận `EMOTION` khi trạng thái thay đổi hoặc đủ 90 giây từ log gần nhất. Ví dụ `data`:
 
 ```json
-{"success":true,"data":{"type":"EMOTION","sample_id":"E","meeting_id":"M","student_id":"S","timestamp":"2026-09-15T14:02:00Z","emotion":"neutral","confidence":0.8,"mock":true,"delivered_to_teacher":true},"message":"OK"}
+{
+  "type":"EMOTION", "sample_id":"E", "meeting_id":"M", "student_id":"S",
+  "frame_id":"frame-42", "timestamp":"2026-09-25T10:00:00Z",
+  "received_at":"2026-09-25T10:00:00.050Z", "logged":true,
+  "face_detected":true, "face_id":"face-1", "emotion":"neutral", "confidence":0.7,
+  "probabilities":{"happy":0.05,"neutral":0.7,"sad":0.05,"angry":0.05,"surprised":0.05,"fearful":0.05,"disgusted":0.05},
+  "failure_reason":null, "mock":false
+}
 ```
 
-Teacher socket nhận cùng data trừ trường `delivered_to_teacher`:
+Student nhận ACK `FRAME_RESULT` cho từng frame đã xử lý, gồm các trường trên và `delivered_to_teacher`; REST trả `type=EMOTION`. `timestamp` là thời điểm chụp do FE gửi (bắt buộc timezone), `received_at` là giờ BE nhận để tính log 90 giây. `logged=false` nghĩa là kết quả được lưu nhưng không đẩy thêm chat log. `GET /meetings/M/emotion-logs?offset=0&limit=100` trả log đã lọc, chỉ owner được đọc; report realtime vẫn dùng toàn bộ mẫu. Teacher offline không làm mất log.
 
-```json
-{"success":true,"data":{"type":"EMOTION","sample_id":"E","meeting_id":"M","student_id":"S","timestamp":"2026-09-15T14:02:00Z","emotion":"neutral","confidence":0.8,"mock":true},"message":"OK"}
-```
+Không thấy mặt: `face_detected=false`, `emotion="fail_detection"`, `face_id=null`, confidence và đủ 7 xác suất bằng 0. `failure_reason="no_face"` khi AI không tìm thấy mặt; `"ai_error"` khi AI lỗi/timeout/kết quả không hợp lệ. Các trạng thái này cũng được ghi log; không đưa vào phân bố 7 cảm xúc. FE bỏ frame khi nhận RATE_LIMITED/AI_BUSY, không xếp hàng vô hạn; giữ FPS trong khả năng của AI. Khi không có frame mới, BE không tự bịa thêm kết quả sau 90 giây.
 
-Chỉ teacher sở hữu nhận push; không broadcast kết quả cá nhân cho cả lớp. Delivery là best effort, không có ACK/replay queue. Teacher offline: vẫn lưu SQL, response delivered_to_teacher=false; teacher có thể xem lại qua report source=realtime. Sample timestamp là giờ server nhận frame, không phải thời điểm chụp của camera. FE nên downscale frame và chỉ gửi request mới sau request trước để tránh backlog.
-
-Contract: `emotions/model.py`, `emotions/schema.py`, `AIClient.analyze_frame`. Tests: frame hợp lệ nhận ở teacher; mock flag; throttle; student chưa joined/đã left; invalid image; AI timeout.
+Contract: `emotions/model.py`, `emotions/schema.py`, `AIClient.analyze_frame`, `AI-CONTRACT.md`.
 
 ## 7. BE-07 Analysis và report
 

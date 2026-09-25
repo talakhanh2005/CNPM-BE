@@ -14,6 +14,8 @@ class Meeting(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     code: Mapped[str] = mapped_column(String(12), unique=True)
     teacher_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    student_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    mode: Mapped[str] = mapped_column(String(16), default="realtime", server_default="realtime")
     status: Mapped[str] = mapped_column(String(16), default="ongoing")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=now)
     ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

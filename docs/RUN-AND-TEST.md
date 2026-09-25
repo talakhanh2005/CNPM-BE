@@ -56,7 +56,7 @@ Giữ dấu nháy đơn trong `.env` để dấu `\` của named instance không
 .\.venv\Scripts\python.exe scripts/check_sqlserver.py
 .\.venv\Scripts\alembic.exe upgrade head
 .\.venv\Scripts\alembic.exe check
-.\.venv\Scripts\uvicorn.exe app.main:create_app --factory --host 0.0.0.0 --port 8000 --workers 1 --ws-max-size 65536
+.\.venv\Scripts\uvicorn.exe app.main:create_app --factory --host 0.0.0.0 --port 8000 --workers 1 --ws-max-size 1048576
 ```
 
 Giữ terminal API mở. Mở terminal thứ hai ở cùng thư mục để chạy worker:
@@ -73,23 +73,17 @@ Chạy lệnh trong terminal thứ ba. Không cần bật API/worker cho pytest:
 
 | Task | Lệnh PowerShell | Kết quả chính |
 |---|---|---|
-| BE-01 | `.\.venv\Scripts\python.exe -m pytest tests/test_auth.py -v` | Register/login/me; token hết hạn; password sai; refresh rotation |
-| BE-02 | `.\.venv\Scripts\python.exe -m pytest tests/test_meetings.py -v` | Create/start/join/leave/end; kiểm tra role/owner |
-| BE-03 | `.\.venv\Scripts\python.exe -m pytest tests/test_signaling.py -v` | OFFER/ANSWER/ICE; presence; camera/mic; disconnect |
-| BE-04 | `.\.venv\Scripts\python.exe -m pytest tests/test_recordings.py -v` | Upload metadata; size/type/duration; owner; lỗi storage |
-| BE-05 | `.\.venv\Scripts\python.exe -m pytest tests/test_analysis.py -v` | Enqueue→completed; failure/retry; lease recovery |
-| BE-06 | `.\.venv\Scripts\python.exe -m pytest tests/test_emotions.py -v` | Frame→AI→teacher; throttle; ảnh sai; AI lỗi |
-| BE-07 | `.\.venv\Scripts\python.exe -m pytest tests/test_reports.py -v` | Report rỗng; phân trang; tính tỷ lệ theo số mẫu |
+| Tính năng phòng học | `.\.venv\Scripts\python.exe -m pytest tests/test_classroom_features.py -v` | Slot học viên; socket refresh; frame/log; lịch sử/video; tài liệu; ICE config |
+| Migration | `.\.venv\Scripts\python.exe -m pytest tests/test_migration.py -v` | Upgrade database cũ, giữ nguyên dữ liệu |
 
-Mặc định những lệnh trên dùng SQLite tạm để kiểm tra nghiệp vụ nhanh. Chúng không kiểm tra kết nối SQL Server của bạn. Để chạy trên SQL Server đã cấu hình, thêm `--sqlserver` vào đúng lệnh cần test, ví dụ:
+Các test chạy trên SQLite tạm và MongoDB giả lập (mongomock), không chạm database thật. Cài dependency và chạy:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_auth.py --sqlserver -v
-.\.venv\Scripts\python.exe -m pytest tests/test_concurrency.py --sqlserver -v
-.\.venv\Scripts\python.exe -m pytest --sqlserver -q
+.\.venv\Scripts\python.exe -m pip install -e ".[test]"
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Test SQL Server tạo schema riêng cho mỗi test và xóa nó khi xong; tài khoản cần quyền tạo schema/bảng. AI và Cloudinary vẫn là mock. Không dùng `--sqlserver` nếu chỉ muốn test nhanh mà chưa cài database/ODBC driver.
+AI và Cloudinary được giả lập trong test. Bộ test hiện tại không có tùy chọn `--sqlserver`; kiểm chứng SQL Server thật cần môi trường riêng. Mặc định ứng dụng dùng AI HTTP; ví dụ `AI_MODE=mock` ở phần setup chỉ dành cho test/demo.
 
 ## 3. Test thủ công BE-01: tài khoản và phân quyền
 
@@ -204,14 +198,14 @@ Student phải joined và meeting ongoing. Teacher nên có WebSocket đang mở
 $meetingId = "<meeting-id>"
 $studentToken = "<student-access-token>"
 $frameBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\Images\frame.jpg"))
-$body = @{frame_base64=$frameBase64;content_type="image/jpeg"} | ConvertTo-Json
+$body = @{frame_id=[guid]::NewGuid().ToString();timestamp=[DateTimeOffset]::UtcNow.ToString("o");frame_base64=$frameBase64;content_type="image/jpeg"} | ConvertTo-Json
 Invoke-RestMethod -Method Post `
   -Uri "http://localhost:8000/meetings/$meetingId/frames" `
   -Headers @{Authorization="Bearer $studentToken"} `
   -ContentType "application/json" -Body $body
 ```
 
-Response có emotion/confidence, student_id, timestamp và mock=true. Teacher socket nhận EMOTION. Nếu teacher offline, delivered_to_teacher=false nhưng SQL vẫn có mẫu. Gửi liên tiếp trong dưới một giây sẽ nhận 429. Sau một giây có thể thử lại.
+Response có emotion/confidence, 7 probabilities, face_id, face_detected, frame_id, timestamp và received_at. Teacher nhận EMOTION khi trạng thái đổi hoặc sau 90 giây. Nếu teacher offline, delivered_to_teacher=false nhưng database vẫn có mẫu. Mặc định gửi cách nhau ít nhất 334 ms (~3 FPS); nhanh hơn bị 429. WebSocket FRAME là kênh chính, xem API.md. AI mock trả mock=true; AI thật không thấy mặt hoặc lỗi có fail_detection và failure_reason.
 
 ```sql
 SELECT TOP (20) student_id, [timestamp], emotion, confidence, mock
@@ -243,7 +237,7 @@ Cuối cùng teacher gọi POST /meetings/{meeting_id}/end. GET meeting phải e
 | Certificate chain error | Local: TrustServerCertificate=true; production: certificate hợp lệ và false |
 | Teacher registration 403 | Đặt invite key hoặc cho phép đăng ký teacher trong demo local |
 | Job giữ pending | Terminal worker chưa chạy hoặc API/worker đọc khác database/env |
-| Test --sqlserver lỗi CREATE SCHEMA | Login test thiếu quyền; dùng tài khoản/database test được cấp quyền |
+| WebSocket frame đóng vì quá kích thước | Chạy Uvicorn với --ws-max-size 1048576 |
 | Command script không import được app | Cài package bằng `pip install --no-deps -e .` trong cùng venv |
 
 Đổi `.env` xong cần restart API/worker. JWT_SECRET phải giống nhau giữa các lần chạy nếu muốn token đang dùng tiếp tục hợp lệ.

@@ -18,6 +18,7 @@ from app.integrations.storage import CloudinaryStorage
 from app.modules.analysis.router import router as analysis_router
 from app.modules.auth.router import router as auth_router
 from app.modules.emotions.router import router as emotions_router
+from app.modules.materials.router import router as materials_router
 from app.modules.meetings.router import router as meetings_router
 from app.modules.recordings.router import router as recordings_router
 from app.modules.reports.router import router as reports_router
@@ -75,6 +76,7 @@ def create_app(settings=None, session_factory=None, ai=None, storage=None):
     for router in [
         auth_router,
         meetings_router,
+        materials_router,
         signaling_router,
         recordings_router,
         analysis_router,

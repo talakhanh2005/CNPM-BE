@@ -3,6 +3,7 @@
 from app.modules.analysis.model import AnalysisJob, AnalysisResult
 from app.modules.auth.model import RefreshSession, User
 from app.modules.emotions.model import EmotionSample
+from app.modules.materials.model import Material
 from app.modules.meetings.model import Meeting, Participant
 from app.modules.recordings.model import Recording
 
@@ -15,4 +16,5 @@ __all__ = [
     "AnalysisJob",
     "AnalysisResult",
     "EmotionSample",
+    "Material",
 ]

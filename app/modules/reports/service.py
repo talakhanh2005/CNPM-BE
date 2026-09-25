@@ -1,6 +1,6 @@
 from collections import Counter
 
-from app.integrations.ai_schema import BatchResult
+from app.integrations.ai_schema import EMOTIONS, BatchResult
 from app.modules.meetings.service import MeetingService
 from app.modules.recordings.service import RecordingService
 from app.modules.reports.repository import ReportRepository
@@ -22,6 +22,7 @@ class ReportService:
         mock=False,
         statuses=None,
     ):
+        counts = {key: value for key, value in counts.items() if key in EMOTIONS}
         sample_count = sum(counts.values())
         return {
             "distribution": {k: round(v * 100 / sample_count, 4) for k, v in counts.items()}
@@ -110,6 +111,11 @@ class ReportService:
                     "confidence": s.confidence,
                     "sample_id": s.id,
                     "mock": s.mock,
+                    "probabilities": s.probabilities,
+                    "face_id": s.face_id,
+                    "face_detected": s.face_detected if s.face_detected is not None else True,
+                    "frame_id": s.frame_id,
+                    "failure_reason": s.failure_reason,
                 }
                 for s in samples
             ]

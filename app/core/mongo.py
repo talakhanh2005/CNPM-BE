@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from copy import deepcopy
 from urllib.parse import urlparse
 
 from pymongo import ASCENDING, MongoClient
@@ -20,7 +21,11 @@ def model_from_doc(model, doc):
     if doc is None:
         return None
     data = {key: value for key, value in doc.items() if key != "_id"}
+    if model is EmotionSample:
+        data.setdefault("face_detected", True)
+        data.setdefault("logged", True)
     if model is Meeting:
+        data.setdefault("mode", "realtime")
         participants = data.pop("participants", [])
         instance = model(**data)
         instance.participants = [model_from_doc(Participant, p) for p in participants]
@@ -54,6 +59,7 @@ class MongoSession:
     def __init__(self, database):
         self.database = database
         self._tracked = []
+        self._snapshots = {}
 
     def __enter__(self):
         return self
@@ -89,7 +95,9 @@ class MongoSession:
                 ),
             )
         if model is Recording:
-            instance = model_from_doc(Recording, self.collection("recordings").find_one({"id": key}))
+            instance = model_from_doc(
+                Recording, self.collection("recordings").find_one({"id": key})
+            )
         if model is AnalysisJob:
             instance = model_from_doc(
                 AnalysisJob, self.collection("analysis_jobs").find_one({"id": key})
@@ -104,9 +112,12 @@ class MongoSession:
                 EmotionSample, self.collection("emotion_samples").find_one({"id": key})
             )
         if "instance" not in locals():
-            raise TypeError(f"Unsupported model: {model!r}")
+            instance = model_from_doc(
+                model, self.collection(model.__tablename__).find_one({"id": key})
+            )
         if instance is not None:
             self._track(instance)
+            self._snapshots[id(instance)] = deepcopy(doc_from_model(instance))
         return instance
 
     def _track(self, instance):
@@ -123,18 +134,41 @@ class MongoSession:
 
     def flush(self):
         for instance in self._tracked:
-            self.collection(collection_name(type(instance))).update_one(
-                key_filter(instance), {"$set": doc_from_model(instance)}, upsert=True
+            current = doc_from_model(instance)
+            previous = self._snapshots.get(id(instance))
+            changed = (
+                current
+                if previous is None
+                else {key: value for key, value in current.items() if previous.get(key) != value}
             )
+            if changed:
+                self.collection(collection_name(type(instance))).update_one(
+                    key_filter(instance), {"$set": changed}, upsert=previous is None
+                )
+            self._snapshots[id(instance)] = deepcopy(current)
 
     def commit(self):
         self.flush()
         return None
 
     def rollback(self):
+        self._tracked.clear()
+        self._snapshots.clear()
         return None
 
     def refresh(self, instance):
+        fresh = self.get(
+            type(instance),
+            tuple(key_filter(instance).values())
+            if isinstance(instance, Participant)
+            else next(iter(key_filter(instance).values())),
+        )
+        if fresh:
+            for key, value in doc_from_model(fresh).items():
+                setattr(instance, key, value)
+            if isinstance(instance, Meeting):
+                instance.participants = fresh.participants
+            self._snapshots[id(instance)] = deepcopy(doc_from_model(instance))
         return instance
 
     def expire_all(self):
@@ -149,7 +183,7 @@ class MongoDatabase:
 
     def connect(self):
         if self.client is None:
-            self.client = MongoClient(self.uri)
+            self.client = MongoClient(self.uri, tz_aware=True)
             self.database = self.client[_database_name(self.uri)]
             self.ensure_indexes()
         return self.database
@@ -189,6 +223,20 @@ class MongoDatabase:
             [("meeting_id", ASCENDING), ("timestamp", ASCENDING)]
         )
         self.database.emotion_samples.create_index([("student_id", ASCENDING)])
+        self.database.emotion_samples.create_index(
+            [
+                ("meeting_id", ASCENDING),
+                ("student_id", ASCENDING),
+                ("logged", ASCENDING),
+                ("received_at", -1),
+            ]
+        )
+        self.database.emotion_samples.create_index(
+            [("meeting_id", ASCENDING), ("student_id", ASCENDING), ("received_at", -1)]
+        )
+        self.database.materials.create_index([("id", ASCENDING)], unique=True)
+        self.database.materials.create_index([("public_id", ASCENDING)], unique=True)
+        self.database.materials.create_index([("meeting_id", ASCENDING), ("created_at", -1)])
 
 
 def make_mongo_database(uri: str):

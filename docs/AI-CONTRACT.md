@@ -1,6 +1,6 @@
 # Hợp đồng BE ↔ AI
 
-`app/integrations/ai_schema.py` là nguồn schema chung. AI thật cần xác nhận contract này trước khi đổi `AI_MODE=http`. Không có callback endpoint; BE worker chờ HTTP response trong process nền. HTTP 202 từ AI chưa được hỗ trợ: nếu AI thật tự enqueue và trả job_id, cần bổ sung adapter polling/callback riêng.
+`app/integrations/ai_schema.py` là nguồn schema chung. Mặc định `AI_MODE=http`; đặt rõ `AI_MODE=mock` chỉ khi test. Không có callback endpoint; BE worker chờ HTTP response trong process nền. HTTP 202 từ AI chưa được hỗ trợ: nếu AI thật tự enqueue và trả job_id, cần bổ sung adapter polling/callback riêng.
 
 ## Batch: POST /v1/analyze/video
 
@@ -48,13 +48,26 @@ AI trả HTTP 200, **body trực tiếp** theo schema dưới, không bọc enve
 
 ## Realtime: POST /v1/analyze/frame
 
-BE gửi multipart với **một field `frame`**, filename `frame`, MIME `image/jpeg` hoặc `image/png`; header `Authorization: Bearer <AI_API_KEY>`.
+BE gửi multipart gồm file `frame` (JPEG/PNG), field `frame_id` và field `timestamp` (ISO 8601 có timezone); header `Authorization: Bearer <AI_API_KEY>`. AI chịu trách nhiệm detect/crop/resize/normalize. BE chỉ kiểm tra định dạng, kích thước byte và pixel của ảnh.
 
 ```json
-{"emotion": "neutral", "confidence": 0.87, "mock": false}
+{
+  "frame_id": "frame-42", "timestamp": "2026-09-25T10:00:00Z",
+  "face_detected": true, "face_id": "face-1",
+  "emotion": "neutral", "confidence": 0.7,
+  "probabilities": {"happy": 0.05, "neutral": 0.7, "sad": 0.05, "angry": 0.05,
+                    "surprised": 0.05, "fearful": 0.05, "disgusted": 0.05},
+  "failure_reason": null, "mock": false
+}
 ```
 
-AI không cần trả student_id/meeting_id/timestamp; backend gắn từ request được xác thực. Timeout mặc định 10 giây. Frame chỉ giữ trong RAM và không được lưu SQL/Cloudinary; SQL lưu kết quả.
+AI phải echo đúng `frame_id` và `timestamp`; BE từ chối kết quả không khớp. Student/meeting lấy từ quyền của request, không lấy từ AI. Bảy xác suất thuộc [0,1], tổng bằng 1 (sai số 0.001); emotion là lớp có xác suất cao nhất và confidence bằng xác suất của lớp đó.
+
+Không thấy mặt vẫn trả HTTP 200 với `face_detected=false`, `face_id=null`, `emotion="fail_detection"`, `confidence=0`, đủ 7 xác suất bằng 0 và `failure_reason="no_face"`. Không dùng xác suất đều nhau vì điều đó có thể bị hiểu là một dự đoán thật.
+
+HTTP lỗi, timeout, schema sai hoặc metadata không khớp được BE lưu thành `fail_detection`, `failure_reason="ai_error"`. `face_detected=false` trong trường hợp này nghĩa là không có kết quả phát hiện mặt hợp lệ, không khẳng định học viên đã rời camera. Timeout mặc định 10 giây. Frame chỉ giữ trong RAM; MongoDB/SQL lưu kết quả và metadata, không lưu ảnh.
+
+BE nhận mặc định 3 FPS, cấu hình 2–5 FPS bằng `FRAME_INTERVAL_SECONDS=0.5..0.2`. Chat log chỉ phát khi trạng thái/lý do lỗi thay đổi hoặc sau 90 giây tính từ log gần nhất. Mọi kết quả đều được lưu để báo cáo không bị lệch phân bố do lọc chat log. Kết quả trả chậm hơn frame đã xử lý vẫn được lưu nhưng không làm lùi trạng thái trực tiếp.
 
 ## Mock và adapter
 

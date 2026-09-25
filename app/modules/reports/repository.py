@@ -16,9 +16,9 @@ class ReportRepository:
     def batch_results(self, meeting_id):
         if getattr(self.db, "is_mongo", False):
             recordings = list(
-                self.db.collection("recordings").find(
-                    {"meeting_id": meeting_id, "status": "completed"}
-                ).sort([("created_at", 1), ("id", 1)])
+                self.db.collection("recordings")
+                .find({"meeting_id": meeting_id, "status": "completed"})
+                .sort([("created_at", 1), ("id", 1)])
             )
             rows = []
             for recording_doc in recordings:

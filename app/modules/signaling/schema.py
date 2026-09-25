@@ -2,6 +2,8 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from app.modules.emotions.schema import FrameIn
+
 
 class StrictMessage(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -48,7 +50,13 @@ class StatusMessage(StrictMessage):
     payload: StatusPayload
 
 
+class FrameMessage(StrictMessage):
+    type: Literal["FRAME"]
+    payload: FrameIn
+
+
 ClientMessage = Annotated[
-    Union[JoinMessage, DescriptionMessage, ICEMessage, StatusMessage], Field(discriminator="type")
+    Union[JoinMessage, DescriptionMessage, ICEMessage, StatusMessage, FrameMessage],
+    Field(discriminator="type"),
 ]
 message_adapter = TypeAdapter(ClientMessage)

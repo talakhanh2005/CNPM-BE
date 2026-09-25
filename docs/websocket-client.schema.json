@@ -29,6 +29,64 @@
       "title": "DescriptionMessage",
       "type": "object"
     },
+    "FrameIn": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "frame_base64": {
+          "description": "Raw base64 without data: prefix; JPEG/PNG only",
+          "maxLength": 700000,
+          "minLength": 1,
+          "title": "Frame Base64",
+          "type": "string"
+        },
+        "content_type": {
+          "enum": [
+            "image/jpeg",
+            "image/png"
+          ],
+          "title": "Content Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "frame_id",
+        "timestamp",
+        "frame_base64",
+        "content_type"
+      ],
+      "title": "FrameIn",
+      "type": "object"
+    },
+    "FrameMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "FRAME",
+          "title": "Type",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/FrameIn"
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "title": "FrameMessage",
+      "type": "object"
+    },
     "ICE": {
       "additionalProperties": false,
       "properties": {
@@ -180,6 +238,7 @@
     "mapping": {
       "ANSWER": "#/$defs/DescriptionMessage",
       "CAMERA_STATUS": "#/$defs/StatusMessage",
+      "FRAME": "#/$defs/FrameMessage",
       "ICE_CANDIDATE": "#/$defs/ICEMessage",
       "JOIN": "#/$defs/JoinMessage",
       "LEAVE": "#/$defs/JoinMessage",
@@ -200,6 +259,9 @@
     },
     {
       "$ref": "#/$defs/StatusMessage"
+    },
+    {
+      "$ref": "#/$defs/FrameMessage"
     }
   ]
 }

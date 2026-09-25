@@ -34,6 +34,7 @@ class AnalysisService:
 async def process_one(session_factory, ai, storage, settings):
     """Durable at-least-once worker; CAS lease prevents stale result overwrites."""
     with session_factory() as db:
+        AnalysisRepository(db).recover_after_session()
         job = AnalysisRepository(db).claim(settings.job_lease_seconds)
         if not job:
             return False

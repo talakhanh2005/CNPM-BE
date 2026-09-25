@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.db import compare_and_swap, lock_row, new_id, now
 from app.core.mongo import model_from_doc
 from app.modules.analysis.model import AnalysisJob, AnalysisResult
+from app.modules.meetings.model import Meeting
 from app.modules.recordings.model import Recording
 
 
@@ -23,12 +24,62 @@ class AnalysisRepository:
             )
         return self.db.scalar(select(AnalysisJob).where(AnalysisJob.recording_id == recording_id))
 
+    def recover_after_session(self):
+        """Repair a crash between committing a video and inserting its automatic job."""
+        if getattr(self.db, "is_mongo", False):
+            docs = self.db.collection("recordings").aggregate(
+                [
+                    {"$match": {"status": {"$in": ["uploaded", "pending"]}}},
+                    {
+                        "$lookup": {
+                            "from": "meetings",
+                            "localField": "meeting_id",
+                            "foreignField": "id",
+                            "as": "meeting",
+                        }
+                    },
+                    {"$match": {"meeting.mode": "after_session"}},
+                    {
+                        "$lookup": {
+                            "from": "analysis_jobs",
+                            "localField": "id",
+                            "foreignField": "recording_id",
+                            "as": "jobs",
+                        }
+                    },
+                    {"$match": {"jobs": {"$size": 0}}},
+                    {"$limit": 50},
+                    {"$project": {"meeting": 0, "jobs": 0}},
+                ]
+            )
+            recordings = [model_from_doc(Recording, doc) for doc in docs]
+        else:
+            recordings = self.db.scalars(
+                select(Recording)
+                .join(Meeting, Meeting.id == Recording.meeting_id)
+                .outerjoin(AnalysisJob, AnalysisJob.recording_id == Recording.id)
+                .where(
+                    Meeting.mode == "after_session",
+                    Recording.status.in_(["uploaded", "pending"]),
+                    AnalysisJob.id.is_(None),
+                )
+                .limit(50)
+            ).all()
+        for recording in recordings:
+            self.enqueue(recording)
+        self.db.commit()
+
     def enqueue(self, recording):
         if getattr(self.db, "is_mongo", False):
-            changed = self.db.collection("recordings").update_one(
-                {"id": recording.id, "status": {"$in": ["uploaded", "failed"]}},
-                {"$set": {"status": "pending"}},
-            ).modified_count == 1
+            changed = (
+                self.db.collection("recordings")
+                .update_one(
+                    {"id": recording.id, "status": {"$in": ["uploaded", "failed"]}},
+                    {"$set": {"status": "pending"}},
+                )
+                .modified_count
+                == 1
+            )
             job = self.get(recording.id)
             if job:
                 if changed or job.state == "failed":

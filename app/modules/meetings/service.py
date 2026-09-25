@@ -3,6 +3,7 @@ import secrets
 from pymongo.errors import DuplicateKeyError
 from sqlalchemy.exc import IntegrityError
 
+from app.core.concurrency import meeting_operation
 from app.core.db import now
 from app.core.errors import AppError
 from app.modules.meetings.model import Meeting
@@ -24,6 +25,17 @@ class MeetingService:
             raise AppError(403, "FORBIDDEN", "Only the owning teacher can access this resource")
         if not owner and meeting.teacher_id != user.id and not participant:
             raise AppError(403, "NOT_A_PARTICIPANT", "Join the meeting first")
+        if active and user.role == "student" and meeting.student_id not in {None, user.id}:
+            raise AppError(403, "FORBIDDEN", "Student is not the assigned participant")
+        if (
+            active
+            and user.role == "student"
+            and meeting.student_id is None
+            and any(p.user_id not in {meeting.teacher_id, user.id} for p in meeting.participants)
+        ):
+            raise AppError(
+                409, "LEGACY_ROOM_FULL", "Create a one-to-one room for this legacy classroom"
+            )
         if active and (
             meeting.status != "ongoing" or not participant or participant.status != "joined"
         ):
@@ -39,7 +51,10 @@ class MeetingService:
             try:
                 meeting = self.repo.add(
                     Meeting(
-                        code=secrets.token_hex(5).upper(), teacher_id=user.id, status=data.status
+                        code=secrets.token_hex(5).upper(),
+                        teacher_id=user.id,
+                        status=data.status,
+                        mode=data.mode,
                     )
                 )
                 self.repo.join(meeting.id, user.id)
@@ -50,6 +65,7 @@ class MeetingService:
                 self.db.rollback()
         raise AppError(503, "CODE_UNAVAILABLE", "Unable to allocate meeting code")
 
+    @meeting_operation
     def join(self, meeting_id, user):
         meeting = self.repo.get(meeting_id, lock=True)
         if meeting is None:
@@ -58,6 +74,8 @@ class MeetingService:
             raise AppError(409, "MEETING_NOT_ACTIVE", "Meeting is not ongoing")
         if user.role == "teacher" and user.id != meeting.teacher_id:
             raise AppError(403, "FORBIDDEN", "Only the owning teacher or students may join")
+        if user.role == "student":
+            self.repo.claim_student(meeting, user.id)
         self.repo.join(meeting_id, user.id)
         self.db.commit()
         self.db.refresh(meeting)
@@ -69,6 +87,7 @@ class MeetingService:
             raise AppError(404, "MEETING_NOT_FOUND", "Meeting code not found")
         return self.join(meeting.id, user)
 
+    @meeting_operation
     def leave(self, meeting_id, user):
         meeting = self.require(meeting_id, user, lock=True)
         participant = self.repo.participant(meeting_id, user.id)
@@ -78,6 +97,7 @@ class MeetingService:
         self.db.refresh(meeting)
         return meeting
 
+    @meeting_operation
     def start(self, meeting_id, user):
         meeting = self.require(meeting_id, user, owner=True, lock=True)
         if meeting.status == "ended":
@@ -89,6 +109,7 @@ class MeetingService:
         self.db.refresh(meeting)
         return meeting
 
+    @meeting_operation
     def end(self, meeting_id, user):
         meeting = self.require(meeting_id, user, owner=True, lock=True)
         if meeting.status != "ended":

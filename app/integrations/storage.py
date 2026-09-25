@@ -104,3 +104,45 @@ class CloudinaryStorage:
             expires_at=int(time.time()) + expires_in,
             **self.options,
         )
+
+    def upload_document(self, data, public_id):
+        self.require_config()
+        try:
+            return cloudinary.uploader.upload(
+                BytesIO(data),
+                public_id=public_id,
+                resource_type="raw",
+                type="authenticated",
+                overwrite=False,
+                timeout=self.settings.upload_timeout_seconds,
+                **self.options,
+            )
+        except Exception as exc:
+            self.delete_document(public_id)
+            raise AppError(
+                502, "STORAGE_UPLOAD_FAILED", "Document upload failed or timed out"
+            ) from exc
+
+    def delete_document(self, public_id):
+        try:
+            cloudinary.uploader.destroy(
+                public_id,
+                resource_type="raw",
+                type="authenticated",
+                timeout=self.settings.upload_timeout_seconds,
+                **self.options,
+            )
+        except Exception:
+            logging.getLogger(__name__).error("Cloudinary document cleanup required: %s", public_id)
+
+    def document_download_url(self, public_id, expires_in=300):
+        self.require_config()
+        return cloudinary.utils.private_download_url(
+            public_id,
+            "",
+            resource_type="raw",
+            type="authenticated",
+            attachment=True,
+            expires_at=int(time.time()) + expires_in,
+            **self.options,
+        )

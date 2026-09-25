@@ -13,7 +13,7 @@ dependencies = [
  "cloudinary>=1.42,<2", "pyodbc>=5.2,<6", "pillow>=11,<13", "pymongo>=4.10,<5"
 ]
 [project.optional-dependencies]
-test = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2", "ruff>=0.9,<1"]
+test = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2", "ruff>=0.9,<1", "mongomock>=4.3,<5"]
 [tool.setuptools.packages.find]
 include = ["app*"]
 [tool.pytest.ini_options]

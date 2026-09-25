@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     max_recording_seconds: int = Field(default=7200, ge=1)
     upload_slots: int = Field(default=2, ge=1, le=16)
     upload_timeout_seconds: int = Field(default=120, ge=1)
-    ai_mode: str = "mock"
+    ai_mode: str = "http"
     ai_base_url: str = "http://localhost:9000"
     ai_api_key: str = ""
     ai_timeout_seconds: int = Field(default=120, ge=1)
@@ -76,11 +76,15 @@ class Settings(BaseSettings):
     job_lease_seconds: int = Field(default=300, ge=10)
     worker_poll_seconds: float = Field(default=2, gt=0)
     max_frame_bytes: int = Field(default=512 * 1024, ge=128)
-    frame_interval_seconds: float = Field(default=1, gt=0)
+    frame_interval_seconds: float = Field(default=1 / 3, ge=0.2, le=0.5)
+    emotion_log_interval_seconds: int = Field(default=90, ge=1)
+    max_document_bytes: int = Field(default=20 * 1024 * 1024, ge=1024)
+    # Passed to RTCPeerConnection by the authenticated FE. TURN is infrastructure-owned.
+    ice_servers: list[dict] = Field(default_factory=list)
     frame_slots: int = Field(default=8, ge=1)
     max_http_json_bytes: int = Field(default=1024 * 1024, ge=1024)
-    ws_max_message_bytes: int = Field(default=64 * 1024, ge=1024)
-    max_room_connections: int = Field(default=100, ge=2)
+    ws_max_message_bytes: int = Field(default=1024 * 1024, ge=1024)
+    max_room_connections: int = Field(default=2, ge=2, le=2)
 
     @model_validator(mode="after")
     def validate_deployment(self):
@@ -95,6 +99,23 @@ class Settings(BaseSettings):
             raise ValueError("SQL authentication requires username and password")
         if self.ai_mode not in {"mock", "http"}:
             raise ValueError("AI_MODE must be mock or http")
+        for server in self.ice_servers:
+            urls = server.get("urls", [])
+            urls = [urls] if isinstance(urls, str) else urls
+            if (
+                not isinstance(urls, list)
+                or not urls
+                or any(
+                    not isinstance(url, str)
+                    or not url.startswith(("stun:", "stuns:", "turn:", "turns:"))
+                    for url in urls
+                )
+            ):
+                raise ValueError("ICE_SERVERS requires valid STUN/TURN urls")
+            if any(url.startswith(("turn:", "turns:")) for url in urls) and not (
+                server.get("username") and server.get("credential")
+            ):
+                raise ValueError("TURN requires username and credential")
         if self.job_lease_seconds <= self.ai_timeout_seconds + 30:
             raise ValueError("JOB_LEASE_SECONDS must exceed AI_TIMEOUT_SECONDS + 30")
         if self.environment == "production":

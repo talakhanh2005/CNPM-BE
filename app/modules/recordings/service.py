@@ -55,8 +55,14 @@ class RecordingService:
                 status="uploaded",
             )
             self.db.commit()
-            return recording
         except Exception:
             self.db.rollback()
             self.storage.delete(asset.public_id)
             raise
+        if meeting.mode == "after_session":
+            # Upload has committed: a queue failure must not delete its persisted video.
+            from app.modules.analysis.service import AnalysisService
+
+            AnalysisService(self.db).enqueue(recording.id, user)
+            self.db.refresh(recording)
+        return recording

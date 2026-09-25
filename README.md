@@ -2,7 +2,7 @@
 
 Backend FastAPI BE-01 -> BE-07, chạy trực tiếp bằng Python và **MongoDB**, phiên bản 1.1.0.
 
-22 REST API, 1 WebSocket endpoint và các collection MongoDB cho auth, meeting, recording, analysis, emotion samples. ConnectionManager hiện cần một API process.
+REST API, 1 WebSocket endpoint và các collection MongoDB cho auth, meeting, recording, analysis, emotion samples và tài liệu học tập. ConnectionManager cần một API process. Phòng học gồm một giáo viên và một học viên.
 
 ## Chạy trên Windows
 
@@ -31,7 +31,7 @@ Nếu dùng MongoDB Atlas hoặc cluster có auth, đặt nguyên connection str
 Chạy API:
 
 ```powershell
-.\.venv\Scripts\uvicorn.exe app.main:create_app --factory --host 0.0.0.0 --port 8000 --workers 1 --ws-max-size 65536
+.\.venv\Scripts\uvicorn.exe app.main:create_app --factory --host 0.0.0.0 --port 8000 --workers 1 --ws-max-size 1048576
 ```
 
 Mở [http://localhost:8000/docs](http://localhost:8000/docs) để thử REST API.
@@ -52,13 +52,12 @@ Worker cần chạy để job phân tích chuyển từ pending sang processing/
 
 | Task | Lệnh (sau `.\.venv\Scripts\python.exe -m`) |
 |---|---|
-| BE-01 Auth | `pytest tests/test_auth.py -v` |
-| BE-02 Meetings | `pytest tests/test_meetings.py -v` |
-| BE-03 Signaling | `pytest tests/test_signaling.py -v` |
-| BE-04 Recording | `pytest tests/test_recordings.py -v` |
-| BE-05 Batch AI | `pytest tests/test_analysis.py -v` |
-| BE-06 Realtime | `pytest tests/test_emotions.py -v` |
-| BE-07 Reports | `pytest tests/test_reports.py -v` |
+| Ràng buộc phòng | `pytest tests/test_classroom_features.py -k "room or join" -v` |
+| Signaling/refresh | `pytest tests/test_classroom_features.py -k "websocket or signaling" -v` |
+| Realtime/AI/log | `pytest tests/test_classroom_features.py -k "frame or log or face or probability" -v` |
+| Video/lịch sử/worker | `pytest tests/test_classroom_features.py -k "after_session or worker" -v` |
+| Tài liệu | `pytest tests/test_classroom_features.py -k "material or pptx" -v` |
+| SQL migration | `pytest tests/test_migration.py -v` |
 
 Ứng dụng runtime dùng MongoDB qua `MONGO_URI`. Một số test và tài liệu legacy cho SQL Server vẫn còn trong repo để tham chiếu lịch sử, nhưng không còn là đường chạy mặc định của API/worker.
 
@@ -87,8 +86,20 @@ Mỗi package tách router/service/repository/model/schema. Signaling lưu socke
 
 ## Những điểm cần cấu hình khi tích hợp
 
-Teacher đăng ký cần `TEACHER_REGISTRATION_KEY`; có thể bật `ALLOW_TEACHER_REGISTRATION=true` chỉ để demo/test local. Video upload yêu cầu credential Cloudinary. `AI_MODE=mock` giúp FE/BE test trước; dùng `AI_MODE=http` và AI_BASE_URL/AI_API_KEY khi AI thật sẵn sàng.
+Teacher đăng ký cần `TEACHER_REGISTRATION_KEY`; có thể bật `ALLOW_TEACHER_REGISTRATION=true` chỉ để demo/test local. Video và tài liệu upload yêu cầu credential Cloudinary. Mặc định `AI_MODE=http`, cấu hình `AI_BASE_URL`/`AI_API_KEY` theo [AI contract](docs/AI-CONTRACT.md). Chỉ đặt rõ `AI_MODE=mock` khi cần dữ liệu giả để test.
 
 Upload là raw body với buffer RAM có giới hạn, mặc định 64 MiB và 2 upload đồng thời; không ghi file video local. File dài hơn cần chia thành video/segment hoàn chỉnh trước khi upload. Worker dùng collection `analysis_jobs` và lease token để khôi phục job sau restart. Báo cáo chọn batch hoặc realtime để tránh đếm đôi cùng dữ liệu.
 
 Chưa có credential Cloudinary/AI thật trong repo; local có thể chạy với mock AI/storage trong test.
+
+## Tính năng bổ sung
+
+- WebSocket nhận `FRAME` 3 FPS; REST `/meetings/{id}/frames` là fallback, dùng cùng rate limit. Chỉ student đang joined trong phòng ongoing, mode realtime được gửi.
+- Mọi kết quả có `frame_id`, `timestamp`, 7 probabilities, `face_id`, `face_detected`; AI lỗi/không thấy mặt có `fail_detection` và lý do. Chat log phát khi thay đổi trạng thái hoặc sau 90 giây; xem lại tại `/meetings/{id}/emotion-logs`.
+- `GET /meetings` trả lịch sử của teacher với `mode=realtime/after_session`. Upload video cho after_session tự gửi vào worker AI; FE vẫn cần ghi/upload video.
+- Upload tài liệu qua `/meetings/{id}/materials?filename=...`; xem danh sách và tải qua URL ký 5 phút.
+- Socket mới thay socket cũ cùng user. Refresh không tự leave. `ICE_SERVERS` được FE lấy qua `/meetings/{id}/ice-config`; cần FE và hạ tầng xác nhận TURN hoạt động.
+
+MongoDB tự bổ sung collection/index khi khởi động; meeting cũ mặc định realtime. Nếu dùng SQL Server, chạy `python -m alembic upgrade head` trước khi chạy API/worker. Frame request cũ cần bổ sung `frame_id` và `timestamp`; AI response cũ cần nâng cấp theo contract mới. Đổi cấu hình `FRAME_INTERVAL_SECONDS=1` cũ thành `0.3333333333333333` và `MAX_ROOM_CONNECTIONS=100` thành `2` nếu có override.
+
+Cài dependency kiểm thử bằng `python -m pip install -e ".[test]"`. Các test mới trong `tests/test_classroom_features.py` chạy cả SQLite và MongoDB giả lập; `tests/test_migration.py` kiểm tra migration. Xem [API](docs/API.md) để tích hợp FE.

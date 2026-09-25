@@ -4,14 +4,16 @@ from typing import Protocol
 
 import httpx
 
-from app.integrations.ai_schema import EMOTIONS, BatchResult, EmotionResult
+from app.integrations.ai_schema import EMOTIONS, BatchResult, FrameResult
 
 
 class AIClient(Protocol):
     async def analyze_video(
         self, recording_id: str, url: str, duration: float, idempotency_key: str
     ) -> BatchResult: ...
-    async def analyze_frame(self, frame: bytes, content_type: str) -> EmotionResult: ...
+    async def analyze_frame(
+        self, frame: bytes, content_type: str, frame_id: str, timestamp
+    ) -> FrameResult: ...
 
 
 class MockAIClient:
@@ -38,9 +40,19 @@ class MockAIClient:
             mock=True,
         )
 
-    async def analyze_frame(self, frame, content_type):
+    async def analyze_frame(self, frame, content_type, frame_id, timestamp):
         rng = random.Random(hashlib.sha256(frame).digest())
-        return EmotionResult(emotion=rng.choice(EMOTIONS), confidence=0.8, mock=True)
+        emotion = rng.choice(EMOTIONS)
+        return FrameResult(
+            frame_id=frame_id,
+            timestamp=timestamp,
+            emotion=emotion,
+            confidence=0.8,
+            face_detected=True,
+            face_id="mock-face",
+            probabilities={e: 0.8 if e == emotion else 0.2 / 6 for e in EMOTIONS},
+            mock=True,
+        )
 
 
 class HttpAIClient:
@@ -75,13 +87,17 @@ class HttpAIClient:
         )
         return BatchResult.model_validate_json(payload)
 
-    async def analyze_frame(self, frame, content_type):
+    async def analyze_frame(self, frame, content_type, frame_id, timestamp):
         payload = await self.request(
             "/v1/analyze/frame",
             self.settings.frame_timeout_seconds,
             files={"frame": ("frame", frame, content_type)},
+            data={"frame_id": frame_id, "timestamp": timestamp.isoformat()},
         )
-        return EmotionResult.model_validate_json(payload)
+        result = FrameResult.model_validate_json(payload)
+        if result.frame_id != frame_id or result.timestamp != timestamp:
+            raise ValueError("AI response does not match submitted frame metadata")
+        return result
 
 
 def build_ai(settings):

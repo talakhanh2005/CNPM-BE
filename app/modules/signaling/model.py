@@ -11,4 +11,5 @@ class Connection:
     socket: WebSocket
     user_id: str
     role: str
+    room: str = ""
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)

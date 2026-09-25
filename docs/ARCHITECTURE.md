@@ -105,7 +105,17 @@ erDiagram
 
 `source=auto`: nếu có ít nhất một batch hoàn thành thì chọn batch; nếu chưa có thì chọn realtime. Không cộng batch với realtime vì có thể là cùng sự kiện. `source=realtime` luôn trả mẫu live. Batch chưa hoàn thành được phản ánh bằng `recording_statuses`; `status=partial` khi một số recording chưa completed.
 
-Batch timeline dùng giây tính từ đầu **từng recording**, kèm recording_id. Không suy ra một trục thời gian chung của meeting vì metadata hiện không có thời điểm bắt đầu quay. Realtime timeline dùng timestamp UTC do server gắn trước khi gọi AI. Pagination chỉ tác động timeline; distribution và sample_count vẫn tính trên toàn bộ nguồn đã chọn.
+Batch timeline dùng giây tính từ đầu **từng recording**, kèm recording_id. Không suy ra một trục thời gian chung của meeting vì metadata hiện không có thời điểm bắt đầu quay. Realtime timeline dùng timestamp chụp do FE gửi và được chuẩn hóa UTC khi lưu; received_at do BE gắn. Pagination chỉ tác động timeline; distribution và sample_count vẫn tính trên toàn bộ nguồn đã chọn. `fail_detection` có trong timeline nhưng không được tính như một trong 7 lớp cảm xúc.
+
+## Luồng phòng học một giáo viên, một học viên
+
+`Meeting.mode` là realtime/after_session, độc lập với lifecycle scheduled/ongoing/ended. Student slot được gán bằng MongoDB conditional update hoặc SQL compare-and-swap; không đổi học viên sau khi leave. Lock theo meeting trong API process đồng bộ thao tác join/end/leave với việc lưu frame. MongoSession chỉ ghi các trường đã thay đổi để không ghi đè trạng thái do conditional update cập nhật. MongoDB adapter không cung cấp transaction nhiều document; worker có bước phục hồi recording after_session đã lưu nhưng chưa có job.
+
+Socket index vừa theo phòng vừa theo user. Khi thay socket, index được đổi trước khi đóng socket cũ; mọi send kiểm tra connection hiện tại, cleanup cũ không xóa connection mới. Transport disconnect chỉ cập nhật presence; LEAVE chủ động mới đổi membership. API vẫn phải chạy một process.
+
+WebSocket FRAME và REST frame dùng chung service, limiter và semaphore AI. Frame xử lý bằng task có giới hạn để không chặn signaling. Lưu tất cả kết quả; cờ logged chỉ bật khi trạng thái/lý do lỗi đổi hoặc đã qua 90 giây từ log gần nhất, theo đồng hồ BE. Kết quả đến trễ vẫn được lưu nhưng không đẩy lùi trạng thái trực tiếp. Log là dữ liệu bền vững; WS push là best effort.
+
+Tài liệu lưu metadata trong collection/table materials; file nằm trên Cloudinary raw authenticated. Owner upload, participant đọc metadata và lấy signed download URL. Video after_session dùng worker phân tích hiện có, tự enqueue sau upload. Lịch sử teacher chỉ đọc dữ liệu và không kích hoạt lại tác vụ AI.
 
 ## Mở rộng
 
