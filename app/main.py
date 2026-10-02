@@ -1,8 +1,3 @@
-from fastapi import FastAPI
+from cnpm_be.main import app
 
-app = FastAPI()
-
-
-@app.get("/")
-def root():
-    return {"message": "Hello FastAPI"}
+__all__ = ["app"]

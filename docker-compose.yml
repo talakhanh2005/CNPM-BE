@@ -1,0 +1,42 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-cnpm_be}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-local-only-change-this-secret-before-deployment-123456}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+      CLOUDINARY_FOLDER: ${CLOUDINARY_FOLDER:-emotion-media}
+      CLOUDINARY_MAX_UPLOAD_BYTES: ${CLOUDINARY_MAX_UPLOAD_BYTES:-10485760}
+      CLOUDINARY_ALLOWED_FORMATS: ${CLOUDINARY_ALLOWED_FORMATS:-["jpg","jpeg","png","webp","mp4","mov"]}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      STUN_URLS: '${STUN_URLS:-["stun:stun.l.google.com:19302"]}'
+      TURN_URLS: '${TURN_URLS:-[]}'
+      TURN_USERNAME: '${TURN_USERNAME:-}'
+      TURN_CREDENTIAL: '${TURN_CREDENTIAL:-}'
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:8
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  mongo_data:

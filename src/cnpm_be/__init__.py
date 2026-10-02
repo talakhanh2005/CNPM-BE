@@ -1,2 +1,4 @@
 def main() -> None:
-    print("Hello from cnpm-be!")
+    import uvicorn
+
+    uvicorn.run("cnpm_be.main:app", host="0.0.0.0", port=8000)
