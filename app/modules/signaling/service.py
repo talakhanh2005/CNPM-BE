@@ -28,6 +28,8 @@ class SignalingService:
     async def relay(self, room, user, message):
         data = message.model_dump()
         data["sender_id"] = user.id
+        data["full_name"] = user.full_name
+        data["role"] = user.role
         if message.type in {"OFFER", "ANSWER"} and message.payload.type != message.type.lower():
             raise AppError(422, "INVALID_SDP", "SDP type does not match message type")
         if message.type in {"OFFER", "ANSWER", "ICE_CANDIDATE"}:

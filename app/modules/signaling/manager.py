@@ -19,7 +19,7 @@ class ConnectionManager:
         if len(members) >= self.max_room_connections or any(c.role == user.role for c in members):
             raise AppError(429, "ROOM_FULL", "Room connection limit reached")
         previous = self.users.get(user.id)
-        connection = Connection(socket, user.id, user.role, room)
+        connection = Connection(socket, user.id, user.role, user.full_name, room)
         if previous:
             self.repo.remove(previous.room, previous.user_id, previous)
         self.repo.add(room, connection)

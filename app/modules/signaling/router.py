@@ -80,7 +80,11 @@ async def signaling(socket: WebSocket, meeting_id: str):
                     "type": "JOIN",
                     "sender_id": user.id,
                     "peers": [
-                        {"user_id": c.user_id, "role": c.role}
+                        {
+                            "user_id": c.user_id,
+                            "role": c.role,
+                            "full_name": c.full_name,
+                        }
                         for c in state.manager.repo.members(meeting_id)
                         if c.user_id != user.id
                     ],
@@ -88,7 +92,14 @@ async def signaling(socket: WebSocket, meeting_id: str):
             ),
         )
         await state.manager.broadcast(
-            meeting_id, {"type": "JOIN", "sender_id": user.id, "role": user.role}, exclude=user.id
+            meeting_id,
+            {
+                "type": "JOIN",
+                "sender_id": user.id,
+                "role": user.role,
+                "full_name": user.full_name,
+            },
+            exclude=user.id,
         )
         window_start, count = time.monotonic(), 0
         while True:
