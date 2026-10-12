@@ -17,6 +17,22 @@ class EmotionRepository:
         self.db.flush()
         return sample
 
+    def by_frame(self, meeting_id, student_id, frame_id):
+        if getattr(self.db, "is_mongo", False):
+            return model_from_doc(
+                EmotionSample,
+                self.db.collection("emotion_samples").find_one(
+                    {"meeting_id": meeting_id, "student_id": student_id, "frame_id": frame_id}
+                ),
+            )
+        return self.db.scalar(
+            select(EmotionSample).where(
+                EmotionSample.meeting_id == meeting_id,
+                EmotionSample.student_id == student_id,
+                EmotionSample.frame_id == frame_id,
+            )
+        )
+
     def latest(self, meeting_id, student_id, logged=False):
         if getattr(self.db, "is_mongo", False):
             query = {"meeting_id": meeting_id, "student_id": student_id}

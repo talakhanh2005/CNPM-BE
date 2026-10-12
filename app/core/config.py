@@ -84,7 +84,9 @@ class Settings(BaseSettings):
     frame_slots: int = Field(default=8, ge=1)
     max_http_json_bytes: int = Field(default=1024 * 1024, ge=1024)
     ws_max_message_bytes: int = Field(default=1024 * 1024, ge=1024)
-    max_room_connections: int = Field(default=2, ge=2, le=2)
+    max_room_connections: int = Field(default=100, ge=4, le=1000)
+    emotion_aggregation_window_seconds: int = Field(default=30, ge=1, le=3600)
+    internal_ai_key: SecretStr = SecretStr("")
 
     @model_validator(mode="after")
     def validate_deployment(self):

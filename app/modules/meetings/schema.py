@@ -27,6 +27,7 @@ class MeetingOut(ORMModel):
     code: str
     teacher_id: str
     student_id: str | None = None
+    student_ids: list[str] = Field(default_factory=list)
     mode: Literal["realtime", "after_session"] = "realtime"
     status: Literal["scheduled", "ongoing", "ended"]
     created_at: datetime
@@ -40,6 +41,7 @@ class MeetingHistoryItem(BaseModel):
     mode: Literal["realtime", "after_session"]
     status: Literal["scheduled", "ongoing", "ended"]
     student_id: str | None
+    student_ids: list[str] = Field(default_factory=list)
     created_at: datetime
     ended_at: datetime | None
     recording_statuses: dict[str, int]

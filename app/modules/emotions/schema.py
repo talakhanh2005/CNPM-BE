@@ -50,6 +50,7 @@ class EmotionLogOut(ORMModel):
 
 
 class EmotionLogsOut(BaseModel):
+    total: int
     offset: int
     limit: int
     items: list[EmotionLogOut]

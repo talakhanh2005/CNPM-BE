@@ -52,6 +52,7 @@ def history(
                 "mode": meeting.mode,
                 "status": meeting.status,
                 "student_id": meeting.student_id,
+                "student_ids": meeting.student_ids,
                 "created_at": meeting.created_at,
                 "ended_at": meeting.ended_at,
                 "recording_statuses": statuses,

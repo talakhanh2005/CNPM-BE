@@ -12,6 +12,7 @@ class EmotionSample(Base):
         Index("ix_emotion_meeting_time", "meeting_id", "timestamp"),
         Index("ix_emotion_received", "meeting_id", "student_id", "received_at"),
         Index("ix_emotion_logged", "meeting_id", "student_id", "logged", "received_at"),
+        Index("ix_emotion_frame_lookup", "meeting_id", "student_id", "frame_id"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"))

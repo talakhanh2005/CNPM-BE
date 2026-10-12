@@ -72,7 +72,7 @@ Contract/mô hình: `auth/model.py`, `auth/schema.py`; nghiệp vụ ở `auth/s
 | GET /meetings | Teacher | Query offset, limit, mode | Lịch sử của chính giáo viên, gồm mode và analysis_status |
 | GET /meetings/M/ice-config | Active member | Không | iceServers, turn_configured |
 
-POST /meetings nhận thêm `mode="realtime"` (mặc định) hoặc `mode="after_session"`. Mode tách biệt với lifecycle `status`. Một phòng có một teacher chủ phòng và đúng một slot student, giữ cùng học viên trong suốt vòng đời phòng kể cả khi học viên leave. Học viên thứ hai bị `409 ROOM_FULL`; tạo phòng mới cho học viên khác. Phòng có thể tạm chỉ có một người khi chờ người còn lại kết nối.
+POST /meetings nhận thêm `mode="realtime"` (mặc định) hoặc `mode="after_session"`. Mode tách biệt với lifecycle `status`. Bản 1.2 hỗ trợ một teacher chủ phòng và nhiều student. `student_ids` chứa danh sách membership; `participants[].status` xác định người đang joined. `student_id` là trường legacy, không dùng cấp quyền. Giới hạn socket mặc định 100/phòng. Xem [contract bổ sung 1.2](BACKEND-TASKS.md) cho dashboard/summary, log CRUD, callback AI và Admin.
 
 Response mẫu sau student join:
 
@@ -166,12 +166,12 @@ socket.onmessage = ({ data }) => {
 
 | Method/path | Quyền | Request | Kết quả |
 |---|---|---|---|
-| POST /meetings/M/recordings | Teacher owner; ongoing/ended | Raw video body | RecordingOut, 201 |
+| POST /meetings/M/recordings?student_id=S | Teacher owner; ongoing/ended | Raw video body của camera học sinh S; student_id bắt buộc | RecordingOut, 201 |
 | GET /recordings/R | Teacher owner | Không body | RecordingOut |
 | GET /recordings/R/playback | Teacher owner | Không body | Signed URL |
 
 ```bash
-curl -X POST http://localhost:8000/meetings/M/recordings   -H 'Authorization: Bearer <access-jwt>'   -H 'Content-Type: video/webm'   --data-binary @recording.webm
+curl -X POST 'http://localhost:8000/meetings/M/recordings?student_id=S'   -H 'Authorization: Bearer <access-jwt>'   -H 'Content-Type: video/webm'   --data-binary @recording.webm
 ```
 
 Không dùng FormData/multipart. MIME: video/mp4, video/webm, video/quicktime. Giới hạn default 64 MiB, 7.200 giây. Length được kiểm tra cả header lẫn tổng byte thực nhận. Cloudinary trả duration để server kiểm tra, không tin duration do FE tự khai. Request video stream có deadline 120 giây. Upload SDK lỗi/timeout trả 502, lỗi kéo dài nhận body trả 408, chưa cấu hình credential trả 503.
@@ -259,9 +259,10 @@ Contract: `emotions/model.py`, `emotions/schema.py`, `AIClient.analyze_frame`, `
 | Method/path | Quyền | Query | Kết quả |
 |---|---|---|---|
 | GET /recordings/R/analysis | Teacher owner | offset>=0, limit=1..2000 | ReportOut |
+| GET /recordings/R/report | Teacher owner | offset>=0, limit=1..2000 | ReportOut, cùng dữ liệu /analysis |
 | GET /meetings/M/report | Teacher owner | source=auto/batch/realtime, offset, limit | ReportOut |
 
-Default offset=0, limit=500, source=auto. Ví dụ một kết quả 100 mẫu:
+Default offset=0, limit=500, source=batch. Report meeting tổng hợp số mẫu từ report của các recording completed. Report recording và timeline có student_id lấy từ recording; report có meeting_id và recording_id khi áp dụng. Xem [recording học sinh](RECORDING-STUDENT.md). Ví dụ một kết quả 100 mẫu:
 
 ```json
 {

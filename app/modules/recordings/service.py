@@ -1,5 +1,6 @@
 from app.core.db import new_id
 from app.core.errors import AppError
+from app.modules.auth.model import User
 from app.modules.meetings.service import MeetingService
 from app.modules.recordings.repository import RecordingRepository
 
@@ -20,10 +21,19 @@ class RecordingService:
         MeetingService(self.db).require(recording.meeting_id, user, owner=True)
         return recording
 
-    def upload(self, meeting_id, user, data, content_type):
+    def upload(self, meeting_id, user, data, content_type, student_id=None):
         meeting = MeetingService(self.db).require(meeting_id, user, owner=True)
         if meeting.status == "scheduled":
             raise AppError(409, "MEETING_NOT_STARTED", "Cannot record a scheduled meeting")
+        student_ids = meeting.student_ids
+        if student_id is None:
+            raise AppError(
+                422, "STUDENT_REQUIRED", "Specify student_id for the student's camera recording"
+            )
+        if student_id is not None:
+            student = self.db.get(User, student_id)
+            if student_id not in student_ids or student is None or student.role != "student":
+                raise AppError(422, "INVALID_STUDENT", "Student must belong to this meeting")
         if not data:
             raise AppError(422, "EMPTY_VIDEO", "Video body is empty")
         if len(data) > self.settings.max_upload_bytes:
@@ -47,6 +57,7 @@ class RecordingService:
             recording = self.repo.add(
                 id=recording_id,
                 meeting_id=meeting_id,
+                student_id=student_id,
                 cloudinary_url=asset.url,
                 public_id=asset.public_id,
                 format=asset.format,

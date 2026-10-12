@@ -9,6 +9,7 @@ from app.core.schemas import ORMModel
 class RecordingOut(ORMModel):
     id: str
     meeting_id: str
+    student_id: str | None = None
     cloudinary_url: str
     duration: float
     size_bytes: int

@@ -212,6 +212,7 @@ class MongoDatabase:
         )
         self.database.recordings.create_index([("id", ASCENDING)], unique=True)
         self.database.recordings.create_index([("meeting_id", ASCENDING)])
+        self.database.recordings.create_index([("student_id", ASCENDING)])
         self.database.recordings.create_index([("public_id", ASCENDING)], unique=True)
         self.database.recordings.create_index([("status", ASCENDING)])
         self.database.analysis_jobs.create_index([("id", ASCENDING)], unique=True)
@@ -223,6 +224,9 @@ class MongoDatabase:
             [("meeting_id", ASCENDING), ("timestamp", ASCENDING)]
         )
         self.database.emotion_samples.create_index([("student_id", ASCENDING)])
+        self.database.emotion_samples.create_index(
+            [("meeting_id", ASCENDING), ("student_id", ASCENDING), ("frame_id", ASCENDING)]
+        )
         self.database.emotion_samples.create_index(
             [
                 ("meeting_id", ASCENDING),

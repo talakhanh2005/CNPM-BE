@@ -38,9 +38,9 @@ def result(frame_id, timestamp, emotion="happy"):
     )
 
 
-def test_room_has_one_student_for_lifetime(env, room):
+def test_room_has_multiple_students(env, room):
     assert (
-        env.client.post(f"/meetings/{room}/join", headers=env.headers["other"]).status_code == 409
+        env.client.post(f"/meetings/{room}/join", headers=env.headers["other"]).status_code == 200
     )
     assert (
         env.client.post(f"/meetings/{room}/join", headers=env.headers["outsider"]).status_code
@@ -48,7 +48,7 @@ def test_room_has_one_student_for_lifetime(env, room):
     )
     env.client.post(f"/meetings/{room}/leave", headers=env.headers["student"])
     assert (
-        env.client.post(f"/meetings/{room}/join", headers=env.headers["other"]).status_code == 409
+        env.client.post(f"/meetings/{room}/join", headers=env.headers["other"]).status_code == 200
     )
     assert (
         env.client.post(f"/meetings/{room}/join", headers=env.headers["student"]).status_code == 200
@@ -69,7 +69,7 @@ def test_concurrent_student_join(env):
                 return exc.status
 
     with ThreadPoolExecutor(2) as pool:
-        assert sorted(pool.map(join, ["student", "other"])) == [200, 409]
+        assert sorted(pool.map(join, ["student", "other"])) == [200, 200]
 
 
 def test_frame_permissions_and_metadata(env, room, frame_data):
@@ -127,7 +127,9 @@ def test_ai_failure_saved_and_report_handles_no_face(env, room, frame_data):
     data = response.json()["data"]
     assert data["emotion"] == "fail_detection" and data["failure_reason"] == "ai_error"
     assert not data["face_detected"] and set(data["probabilities"].values()) == {0}
-    report = env.client.get(f"/meetings/{room}/report", headers=env.headers["teacher"])
+    report = env.client.get(
+        f"/meetings/{room}/report?source=realtime", headers=env.headers["teacher"]
+    )
     assert report.status_code == 200, report.text
     assert report.json()["data"]["sample_count"] == 0
     assert report.json()["data"]["timeline_total"] == 1
@@ -151,6 +153,7 @@ def test_websocket_frames_reconnect_and_teacher_rejection(env, room, frame_data)
                 student.send_json({"type": "FRAME", "payload": frame_data})
                 assert teacher.receive_json()["data"]["type"] == "EMOTION"
                 assert student.receive_json()["data"]["type"] == "FRAME_RESULT"
+                assert teacher.receive_json()["data"]["type"] == "EMOTION_AGGREGATE"
                 teacher.send_json({"type": "CAMERA_STATUS", "payload": {"enabled": True}})
                 assert student.receive_json()["data"]["sender_id"] == "teacher"
         # A refresh after transport disconnection can authenticate without rejoining.
@@ -174,6 +177,7 @@ def test_after_session_upload_auto_analysis_and_history(env, frame_data):
     env.client.post(f"/meetings/{room}/end", headers=env.headers["teacher"])
     response = env.client.post(
         f"/meetings/{room}/recordings",
+        params={"student_id": "student"},
         content=b"\x00\x00\x00\x20ftypisom",
         headers={**env.headers["teacher"], "Content-Type": "video/mp4"},
     )

@@ -1,6 +1,6 @@
 import asyncio
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from app.core.dependencies import DB, Teacher
@@ -27,8 +27,14 @@ router = APIRouter(tags=["BE-04 Recordings"])
         }
     },
 )
-async def upload(meeting_id: str, request: Request, user: Teacher, db: DB):
-    """Upload a raw video body (not multipart). RAM-only buffering with hard limits."""
+async def upload(
+    meeting_id: str,
+    request: Request,
+    user: Teacher,
+    db: DB,
+    student_id: str = Query(..., min_length=1, max_length=36),
+):
+    """Upload one student's camera as a raw video body, identified by student_id."""
     state = request.app.state
     await run_in_threadpool(MeetingService(db).require, meeting_id, user, True)
     await run_in_threadpool(db.commit)
@@ -60,7 +66,9 @@ async def upload(meeting_id: str, request: Request, user: Teacher, db: DB):
         except TimeoutError as exc:
             raise AppError(408, "UPLOAD_TIMEOUT", "Request video stream timed out") from exc
         service = RecordingService(db, state.storage, state.settings)
-        recording = await run_in_threadpool(service.upload, meeting_id, user, bytes(data), mime)
+        recording = await run_in_threadpool(
+            service.upload, meeting_id, user, bytes(data), mime, student_id
+        )
         return ok(recording, "Recording uploaded")
 
 

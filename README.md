@@ -1,8 +1,8 @@
 # Face Emotion Backend — MongoDB
 
-Backend FastAPI BE-01 -> BE-07, chạy trực tiếp bằng Python và **MongoDB**, phiên bản 1.1.0.
+Backend FastAPI chạy trực tiếp bằng Python và **MongoDB**, phiên bản 1.2.0. Bản 1.2 bổ sung phòng 1-N, analytics realtime, callback AI và Admin. Xem [bàn giao task Backend](docs/BACKEND-TASKS.md) và [kết quả regression](docs/SECURITY-REGRESSION.md).
 
-REST API, 1 WebSocket endpoint và các collection MongoDB cho auth, meeting, recording, analysis, emotion samples và tài liệu học tập. ConnectionManager cần một API process. Phòng học gồm một giáo viên và một học viên.
+REST API, 1 WebSocket endpoint và các collection MongoDB cho auth, meeting, recording, analysis, emotion samples và tài liệu học tập. ConnectionManager cần một API process. Phòng học gồm một giáo viên và nhiều học viên; mặc định tối đa 100 socket/phòng.
 
 ## Chạy trên Windows
 
@@ -100,6 +100,6 @@ Chưa có credential Cloudinary/AI thật trong repo; local có thể chạy v�
 - Upload tài liệu qua `/meetings/{id}/materials?filename=...`; xem danh sách và tải qua URL ký 5 phút.
 - Socket mới thay socket cũ cùng user. Refresh không tự leave. `ICE_SERVERS` được FE lấy qua `/meetings/{id}/ice-config`; cần FE và hạ tầng xác nhận TURN hoạt động.
 
-MongoDB tự bổ sung collection/index khi khởi động; meeting cũ mặc định realtime. Nếu dùng SQL Server, chạy `python -m alembic upgrade head` trước khi chạy API/worker. Frame request cũ cần bổ sung `frame_id` và `timestamp`; AI response cũ cần nâng cấp theo contract mới. Đổi cấu hình `FRAME_INTERVAL_SECONDS=1` cũ thành `0.3333333333333333` và `MAX_ROOM_CONNECTIONS=100` thành `2` nếu có override.
+MongoDB tự bổ sung collection/index khi khởi động; meeting cũ mặc định realtime. Nếu dùng SQL Server, chạy `python -m alembic upgrade head` trước khi chạy API/worker. Frame request cũ cần bổ sung `frame_id` và `timestamp`; AI response cũ cần nâng cấp theo contract mới. Đổi cấu hình `FRAME_INTERVAL_SECONDS=1` cũ thành `0.3333333333333333` và `MAX_ROOM_CONNECTIONS=2` thành `100` nếu có override.
 
 Cài dependency kiểm thử bằng `python -m pip install -e ".[test]"`. Các test mới trong `tests/test_classroom_features.py` chạy cả SQLite và MongoDB giả lập; `tests/test_migration.py` kiểm tra migration. Xem [API](docs/API.md) để tích hợp FE.

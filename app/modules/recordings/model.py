@@ -17,6 +17,7 @@ class Recording(Base):
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
+    student_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)
     cloudinary_url: Mapped[str] = mapped_column(String(2048))
     public_id: Mapped[str] = mapped_column(String(256), unique=True)
     format: Mapped[str] = mapped_column(String(16))

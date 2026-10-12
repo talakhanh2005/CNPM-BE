@@ -23,6 +23,10 @@ class Meeting(Base):
         lazy="selectin", cascade="all, delete-orphan"
     )
 
+    @property
+    def student_ids(self):
+        return sorted(p.user_id for p in self.participants if p.user_id != self.teacher_id)
+
 
 class Participant(Base):
     __tablename__ = "participants"

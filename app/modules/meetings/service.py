@@ -25,17 +25,6 @@ class MeetingService:
             raise AppError(403, "FORBIDDEN", "Only the owning teacher can access this resource")
         if not owner and meeting.teacher_id != user.id and not participant:
             raise AppError(403, "NOT_A_PARTICIPANT", "Join the meeting first")
-        if active and user.role == "student" and meeting.student_id not in {None, user.id}:
-            raise AppError(403, "FORBIDDEN", "Student is not the assigned participant")
-        if (
-            active
-            and user.role == "student"
-            and meeting.student_id is None
-            and any(p.user_id not in {meeting.teacher_id, user.id} for p in meeting.participants)
-        ):
-            raise AppError(
-                409, "LEGACY_ROOM_FULL", "Create a one-to-one room for this legacy classroom"
-            )
         if active and (
             meeting.status != "ongoing" or not participant or participant.status != "joined"
         ):
@@ -72,10 +61,10 @@ class MeetingService:
             raise AppError(404, "MEETING_NOT_FOUND", "Meeting not found")
         if meeting.status != "ongoing":
             raise AppError(409, "MEETING_NOT_ACTIVE", "Meeting is not ongoing")
-        if user.role == "teacher" and user.id != meeting.teacher_id:
+        if user.role not in {"teacher", "student"} or (
+            user.role == "teacher" and user.id != meeting.teacher_id
+        ):
             raise AppError(403, "FORBIDDEN", "Only the owning teacher or students may join")
-        if user.role == "student":
-            self.repo.claim_student(meeting, user.id)
         self.repo.join(meeting_id, user.id)
         self.db.commit()
         self.db.refresh(meeting)

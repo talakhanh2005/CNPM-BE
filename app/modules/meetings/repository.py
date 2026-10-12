@@ -1,7 +1,6 @@
 from sqlalchemy import select, update
 
 from app.core.db import lock_row, new_id, now
-from app.core.errors import AppError
 from app.core.mongo import model_from_doc
 from app.modules.meetings.model import Meeting, Participant
 
@@ -34,40 +33,6 @@ class MeetingRepository:
     def participant(self, meeting_id, user_id):
         return self.db.get(Participant, (meeting_id, user_id))
 
-    def claim_student(self, meeting, user_id):
-        # Reserve the same student for the lifetime of this one-to-one classroom.
-        # Also check legacy memberships before assigning a previously absent slot.
-        if any(p.user_id not in {meeting.teacher_id, user_id} for p in meeting.participants):
-            raise AppError(409, "ROOM_FULL", "This classroom already has a student")
-        if getattr(self.db, "is_mongo", False):
-            claimed = self.db.collection("meetings").update_one(
-                {
-                    "id": meeting.id,
-                    "status": "ongoing",
-                    "$or": [{"student_id": None}, {"student_id": user_id}],
-                },
-                {"$set": {"student_id": user_id}},
-            )
-            if not claimed.matched_count:
-                raise AppError(409, "ROOM_FULL", "Student slot unavailable")
-        else:
-            from app.core.db import compare_and_swap
-
-            claimed = compare_and_swap(
-                self.db,
-                update(Meeting)
-                .where(
-                    Meeting.id == meeting.id,
-                    Meeting.status == "ongoing",
-                    (Meeting.student_id.is_(None)) | (Meeting.student_id == user_id),
-                )
-                .values(student_id=user_id),
-                Meeting.id,
-            )
-            if not claimed:
-                raise AppError(409, "ROOM_FULL", "Student slot unavailable")
-        meeting.student_id = user_id
-
     def history(self, teacher_id, offset, limit, mode=None):
         if getattr(self.db, "is_mongo", False):
             query = {"teacher_id": teacher_id}
@@ -76,7 +41,7 @@ class MeetingRepository:
             elif mode:
                 query["mode"] = mode
             return [
-                model_from_doc(Meeting, doc)
+                self.db.get(Meeting, doc["id"])
                 for doc in self.db.collection("meetings")
                 .find(query)
                 .sort([("created_at", -1), ("id", -1)])

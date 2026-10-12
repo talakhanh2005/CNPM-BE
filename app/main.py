@@ -15,8 +15,10 @@ from app.core.mongo import make_mongo_database
 from app.core.schemas import Envelope, ErrorEnvelope, ok
 from app.integrations.ai import build_ai
 from app.integrations.storage import CloudinaryStorage
+from app.modules.admin.router import router as admin_router
 from app.modules.analysis.router import router as analysis_router
 from app.modules.auth.router import router as auth_router
+from app.modules.emotions.internal import router as internal_router
 from app.modules.emotions.router import router as emotions_router
 from app.modules.materials.router import router as materials_router
 from app.modules.meetings.router import router as meetings_router
@@ -49,7 +51,7 @@ def create_app(settings=None, session_factory=None, ai=None, storage=None):
 
     app = FastAPI(
         title="Face Emotion Backend",
-        version="1.1.0",
+        version="1.2.0",
         lifespan=lifespan,
         description="Classroom auth, meeting management, WebRTC signaling, Cloudinary and AI orchestration. WebSocket protocol: docs/API.md.",
     )
@@ -66,7 +68,7 @@ def create_app(settings=None, session_factory=None, ai=None, storage=None):
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["Authorization", "Content-Type"],
     )
     errors = {
@@ -82,6 +84,8 @@ def create_app(settings=None, session_factory=None, ai=None, storage=None):
         analysis_router,
         emotions_router,
         reports_router,
+        admin_router,
+        internal_router,
     ]:
         app.include_router(router, responses=errors)
 

@@ -74,7 +74,7 @@ def env(request, tmp_path):
         ]:
             users[name] = User(
                 id=name,
-                email=f"{name}@example.test",
+                email=f"{name}@example.com",
                 password_hash="unused",
                 full_name=name,
                 role=role,

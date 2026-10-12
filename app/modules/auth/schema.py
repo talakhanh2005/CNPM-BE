@@ -51,5 +51,5 @@ class UserOut(ORMModel):
     id: str
     email: EmailStr
     full_name: str
-    role: Literal["teacher", "student"]
+    role: Literal["admin", "teacher", "student"]
     created_at: datetime
