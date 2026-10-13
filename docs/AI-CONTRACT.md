@@ -89,3 +89,12 @@ stateDiagram-v2
 ```
 
 Không tự retry lỗi AI thông thường để tránh lặp chi phí ngoài ý muốn; teacher có thể gọi Analyze lại sau trạng thái failed. Crash/restart worker được khôi phục bằng lease. Cùng job_id được giữ qua retry: AI cần lưu thành công theo idempotency key và cho phép thử lại khi lần trước thất bại. Kết quả completed được coi là bất biến qua API Analyze hiện tại.
+
+## Bổ sung contract v1 (12/10/2026)
+
+Chi tiết và ví dụ đầy đủ ở [CONTRACT-v1.md](CONTRACT-v1.md) §6. Mọi trường mới đều **tuỳ chọn**, AI bản hiện tại vẫn tương thích.
+
+- Frame: thêm `model_version` (≤ 64 ký tự). BE lưu vào `emotion_samples.model_version` và trả cho FE.
+- Video: thêm `model_version` và `segments` (`start_seconds`, `end_seconds`, `emotion` ∈ 7 lớp + `no_face` + `unknown`, `avg_confidence` hoặc `null`, `student_id`). Segment phải sắp xếp, không chồng lấn, `end_seconds` không vượt `duration`; sai → job `failed`.
+- Khi AI chưa trả `segments`, BE dựng segment từ `timeline` (`segments_source="derived"`), nên AI có thể bổ sung sau mà không đổi API.
+- BE gửi thêm header `X-Request-ID` ở mọi request tới AI; AI nên ghi id này vào log.

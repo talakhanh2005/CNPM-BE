@@ -9,14 +9,15 @@ from app.modules.signaling.repository import ConnectionRepository
 class ConnectionManager:
     """One API process. Serialize sends and bound slow-client delivery time."""
 
-    def __init__(self, max_room_connections=2):
+    def __init__(self, max_room_connections=30):
         self.repo = ConnectionRepository()
-        self.max_room_connections = min(max_room_connections, 2)
+        # One teacher plus students; membership rules live in MeetingService.
+        self.max_room_connections = max_room_connections
         self.users = {}
 
     async def connect(self, room, socket, user):
         members = [c for c in self.repo.members(room) if c.user_id != user.id]
-        if len(members) >= self.max_room_connections or any(c.role == user.role for c in members):
+        if len(members) >= self.max_room_connections:
             raise AppError(429, "ROOM_FULL", "Room connection limit reached")
         previous = self.users.get(user.id)
         connection = Connection(socket, user.id, user.role, user.full_name, room)

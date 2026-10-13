@@ -12,6 +12,7 @@ from app.core.config import Settings
 from app.core.db import Base, make_database, now
 from app.core.mongo import MongoDatabase, MongoSession
 from app.core.security import issue_token
+from app.integrations import media
 from app.integrations.ai import MockAIClient
 from app.integrations.storage import UploadedVideo
 from app.main import create_app
@@ -19,8 +20,56 @@ from app.modules.auth.model import User
 
 
 class Storage:
-    def __init__(self):
+    """Cloudinary stand-in; generic media still runs the real type/magic-byte checks."""
+
+    def __init__(self, settings=None):
         self.documents = {}
+        self.media = {}
+        self.settings = settings
+        self.fail_delete = False
+
+    def upload_media(
+        self,
+        content,
+        *,
+        content_type,
+        folder,
+        public_id=None,
+        allowed_formats=None,
+        max_bytes=None,
+        delivery_type="upload",
+    ):
+        media_format = media.validate_format(
+            content_type,
+            len(content),
+            max_bytes or self.settings.cloudinary_max_upload_bytes,
+            allowed_formats if allowed_formats is not None else self.settings.allowed_formats_list,
+        )
+        media.validate_magic_bytes(content, content_type)
+        public_id = f"{folder}/{public_id or len(self.media)}"
+        info = media.MediaInfo(
+            url=f"https://storage.test/{public_id}",
+            public_id=public_id,
+            resource_type=media.resource_type_for(media_format),
+            format=media_format,
+            bytes=len(content),
+            created_at="2026-10-12T00:00:00Z",
+        )
+        self.media[public_id] = info
+        return info
+
+    def media_info(self, public_id, resource_type):
+        if public_id not in self.media:
+            raise media.media_not_found()
+        return self.media[public_id]
+
+    def delete_media(self, public_id, resource_type, delivery_type="upload"):
+        if self.fail_delete:
+            raise media.upload_failed()
+        return self.media.pop(public_id, None) is not None
+
+    def private_url(self, public_id, *, resource_type, media_format="", delivery_type="", ttl=300):
+        return f"https://storage.test/signed/{public_id}", 0
 
     def upload(self, data, public_id):
         return UploadedVideo(public_id, "https://storage.test/video", 30, len(data), "mp4")
@@ -84,7 +133,7 @@ def env(request, tmp_path):
         db.commit()
     tokens = {name: issue_token(name, "access", settings) for name in users}
     headers = {name: {"Authorization": f"Bearer {token}"} for name, token in tokens.items()}
-    app = create_app(settings, factory, MockAIClient(), Storage())
+    app = create_app(settings, factory, MockAIClient(), Storage(settings))
     with TestClient(app) as client:
         yield SimpleNamespace(
             client=client,

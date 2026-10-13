@@ -33,6 +33,14 @@ def report(
     source: Literal["auto", "batch", "realtime"] = "auto",
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=2000)] = 500,
+    student_id: Annotated[str | None, Query(max_length=36)] = None,
 ):
-    """Weighted sample distribution. Auto prefers completed batch data, otherwise realtime; never merges sources."""
-    return ok(ReportService(db).meeting(meeting_id, user, ReportSelection(source, offset, limit)))
+    """Weighted sample distribution. Auto prefers completed batch data, otherwise realtime; never merges sources.
+
+    ``student_id`` narrows a multi-student room to one student's realtime samples.
+    """
+    return ok(
+        ReportService(db).meeting(
+            meeting_id, user, ReportSelection(source, offset, limit, student_id)
+        )
+    )

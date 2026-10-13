@@ -58,6 +58,28 @@ Refresh trả TokenOut mới. FE phải thay **cả hai** token sau refresh, ch�
 
 Contract/mô hình: `auth/model.py`, `auth/schema.py`; nghiệp vụ ở `auth/service.py`, SQL ở `auth/repository.py`. Test: login/register/me bằng httpx AsyncClient; duplicate email, sai mật khẩu, JWT hết hạn/sai type, refresh reuse, concurrent refresh, invite thiếu.
 
+Vai trò giáo viên (gộp từ BE A): email nằm trong `TEACHER_EMAIL_WHITELIST` luôn được đăng ký là teacher, kể cả khi client gửi `role:"student"`. Email khác muốn làm teacher vẫn cần `teacher_registration_key` (hoặc `ALLOW_TEACHER_REGISTRATION=true` khi demo). Role `admin` chỉ tạo qua `ADMIN_EMAIL`/`ADMIN_PASSWORD` lúc khởi động; admin đăng nhập bằng `/auth/login` như user thường.
+
+### API v1 gộp từ BE A
+
+| Method/path | Quyền | Ghi chú |
+|---|---|---|
+| POST /v1/auth/register | Public | `{email, password, display_name?}`; luôn tạo student |
+| POST /v1/auth/login | Public | Form OAuth2 (`username`=email, `password`); trả **trực tiếp** `{access_token, token_type}` (không envelope) để nút Authorize của Swagger dùng được |
+| GET/PUT /v1/users/me | Access JWT | Xem/sửa email, password, `display_name`/`full_name` |
+| GET /v1/users, GET/PUT/DELETE /v1/users/U | Admin | Admin không tự hạ quyền/xoá mình (400); xoá user còn sở hữu phòng/dữ liệu trên SQL → 409 `USER_IN_USE` |
+| POST/GET /v1/emotions, GET/DELETE /v1/emotions/E | Access JWT | Nhãn cảm xúc tự ghi của chính người dùng, multipart `label` + `media_file` tuỳ chọn |
+
+### Media gộp từ BE A
+
+| Method/path | Quyền | Ghi chú |
+|---|---|---|
+| POST /media/signed-upload | Access JWT | Tham số đã ký để trình duyệt upload thẳng lên Cloudinary vào `openemotion/uploads/{user_id}/{folder}` |
+| GET /media/PUBLIC_ID | Owner/participant | Thông tin file ghi gắn với phòng qua `/recording-file` |
+| DELETE /media/PUBLIC_ID | Owner | Xoá file ghi, đưa `recording_status` về `none` |
+
+Lỗi media giữ mã của BE A: `FILE_TOO_LARGE` (413), `UNSUPPORTED_MEDIA_TYPE` (415), `UPLOAD_FAILED` (502), `MEDIA_NOT_FOUND` (404), `MEDIA_NOT_CONFIGURED` (503).
+
 ## 2. BE-02 Meeting
 
 | Method/path | Quyền | Body | Kết quả |
@@ -69,10 +91,18 @@ Contract/mô hình: `auth/model.py`, `auth/schema.py`; nghiệp vụ ở `auth/s
 | POST /meetings/M/leave | Member/owner | Không | MeetingOut |
 | POST /meetings/M/start | Owner | Không | MeetingOut |
 | POST /meetings/M/end | Owner | Không | MeetingOut |
-| GET /meetings | Teacher | Query offset, limit, mode | Lịch sử của chính giáo viên, gồm mode và analysis_status |
+| GET /meetings | Teacher | Query offset, limit, mode | Lịch sử của chính giáo viên, gồm mode, name, participant_count và analysis_status |
 | GET /meetings/M/ice-config | Active member | Không | iceServers, turn_configured |
+| GET /meetings/history | Authenticated | Query page, size, q, status, recording_status, from_date, to_date | Teacher: phòng mình tạo; student: phòng đã tham gia. Không có `page` → mảng; có `page` → `{items, pagination}` |
+| PUT /meetings/M | Owner (người khác 404) | `{"name"?, "description"?, "tags"?}` | MeetingOut |
+| DELETE /meetings/M | Owner (người khác 404) | Không | `{meeting_id, deleted_at}`; xoá mềm, phòng biến mất khỏi mọi tra cứu |
+| POST /meetings/M/disconnect | Member | Không | Đánh dấu `disconnected` khi thoát trang; GET /meetings/M sau đó tự join lại |
+| POST /meetings/M/recording | Owner hoặc member đang joined | `{"durationSeconds"?}` | Lưu thời lượng, `recording_status=processing`; quá 5 phút không có kết quả → `failed` (`timeout_waiting_ai`) |
+| POST /meetings/M/recording-file | Owner hoặc member đang joined | multipart `file` (ảnh/video/audio) | Upload Cloudinary có kiểm tra magic bytes, gắn vào phòng |
 
-POST /meetings nhận thêm `mode="realtime"` (mặc định) hoặc `mode="after_session"`. Mode tách biệt với lifecycle `status`. Một phòng có một teacher chủ phòng và đúng một slot student, giữ cùng học viên trong suốt vòng đời phòng kể cả khi học viên leave. Học viên thứ hai bị `409 ROOM_FULL`; tạo phòng mới cho học viên khác. Phòng có thể tạm chỉ có một người khi chờ người còn lại kết nối.
+POST /meetings nhận thêm `mode="realtime"` (mặc định) hoặc `mode="after_session"`, cùng các trường phòng: `name`, `description`, `tags`, `participant_mode` (`free`/`approval`), `duration_minutes`. Tên cũ dạng camelCase (`participantMode`, `analysisMode="batch"`, `emotionRecognition`) vẫn được chấp nhận; `mode` được ưu tiên. `participant_mode=approval` hiện chỉ được lưu lại, chưa có luồng duyệt (giống bản BE A).
+
+Một phòng có một teacher chủ phòng và nhiều student. Số kết nối tối đa của phòng (kể cả giáo viên) là `MAX_ROOM_CONNECTIONS` (mặc định 30); khi đầy, student mới bị `409 ROOM_FULL`. `student_id` giữ học viên đầu tiên tham gia, chỉ để tham khảo. MeetingOut có thêm `name`, `description`, `tags`, `participant_mode`, `duration_minutes`, `recording_status` (`none`/`uploaded`/`processing`/`completed`/`failed`), `recording_url`, `failed_reason`; mỗi participant có thêm `full_name`, `role`, `disconnected_at`.
 
 Response mẫu sau student join:
 
@@ -200,11 +230,29 @@ Với `mode=after_session`, upload tự enqueue và trả recording `status=pend
 | GET /meetings/M/materials?offset=0&limit=50 | Owner/participant | Danh sách tài liệu, không trả public_id |
 | GET /materials/ID/download | Owner/participant | URL tải có chữ ký, expires_in=300 |
 
-Hỗ trợ PDF, PPT/PPTX, DOC/DOCX, XLS/XLSX và TXT UTF-8. Giới hạn mặc định 20 MiB qua `MAX_DOCUMENT_BYTES`; kiểm tra extension, MIME và chữ ký/container; không nhận đường dẫn trong filename. Upload là raw body, không phải multipart. Asset Cloudinary dùng `resource_type=raw`, `type=authenticated`; URL ký chỉ cấp sau khi kiểm tra membership. FE có thể upload trực tiếp một `File` làm body fetch và truyền tên qua `encodeURIComponent(file.name)`.
+Hỗ trợ PDF, PPT/PPTX, DOC/DOCX, XLS/XLSX, TXT UTF-8 và ảnh PNG/JPG. Giới hạn mặc định 20 MiB qua `MAX_DOCUMENT_BYTES`, tối đa `MAX_DOCUMENTS_PER_MEETING` (100) tài liệu mỗi phòng; kiểm tra extension, MIME và chữ ký/container; không nhận đường dẫn trong filename. Upload là raw body, không phải multipart. Asset Cloudinary dùng `type=authenticated`; URL ký chỉ cấp sau khi kiểm tra quyền. Tài liệu upload theo cách này mặc định **cả lớp xem được**.
+
+### Chia sẻ tài liệu (gộp từ BE A)
+
+Cùng bảng `materials`, thêm upload multipart và quyền chia sẻ. Tài liệu upload qua `/documents` mặc định **riêng tư** cho tới khi giáo viên chia sẻ. Học viên chỉ thấy tài liệu chưa bị thu hồi và được chia sẻ cho cả lớp hoặc cho chính mình; quy tắc này áp dụng cho cả `/materials` ở trên. Người không có quyền nhận `404 DOCUMENT_NOT_FOUND` để không dò được ID.
+
+| Method/path | Quyền | Dữ liệu |
+|---|---|---|
+| POST /meetings/M/documents | Owner | multipart `file`, `tags` ("toan, slide"); trả metadata + `download_url` 5 phút |
+| GET /meetings/M/documents | Owner/participant | Query page, size (≤50), q, tag, from_date, to_date, include_revoked; `{items, pagination}` |
+| GET /meetings/M/documents/D | Owner/participant có quyền | Metadata + `download_url`; header `Cache-Control: no-store` |
+| DELETE /meetings/M/documents/D | Owner | Xoá file Cloudinary rồi xoá bản ghi; Cloudinary lỗi → 502 và giữ bản ghi |
+| PATCH /meetings/M/documents/D/share | Owner | `{"account_ids": []}` = cả lớp; danh sách ID = thêm từng học viên |
+| PATCH /meetings/M/documents/D/unshare | Owner | `[]` = ẩn với tất cả; danh sách ID = bỏ từng học viên |
+| POST /meetings/M/documents/D/revoke, /restore | Owner | Thu hồi/khôi phục, file vẫn giữ để audit |
+| POST /meetings/M/documents/D/generate-share-link | Owner | `{"expires_in_hours": 1-168}` (mặc định 24); trả `share_path`, `share_token`, `expires_at` |
+| GET /share/documents/TOKEN | Không cần đăng nhập | 404 token sai; 410 `SHARE_LINK_GONE` khi đã thu hồi/hết hạn |
+
+Giáo viên thấy thêm `shared_with`, `shared_with_all`, `revoked`, `revoked_at`, `share_path`, `share_expires_at`. Share token được che thành `***` trong access log.
 
 ## STUN/TURN cho FE
 
-Đặt `ICE_SERVERS` trong môi trường backend (ví dụ trong `.env.example`). Sau khi join, FE lấy `GET /meetings/M/ice-config` và tạo `new RTCPeerConnection({iceServers: response.data.iceServers})`. `turn_configured` chỉ xác nhận có URL TURN trong cấu hình, không phải đã kiểm tra được kết nối TURN. Không có cấu hình hạ tầng mặc định. Chỉ STUN có thể không đủ khi NAT khắt khe; cần TURN hợp lệ và kiểm thử thực tế hai mạng khác nhau. Có thể ép `iceTransportPolicy: "relay"` trong bài test FE để kiểm chứng TURN. Repo này không chứa FE nên việc truyền iceServers vào peer connection cần phía FE xác nhận.
+Đặt `ICE_SERVERS` trong môi trường backend (ví dụ trong `.env.example`). Nếu `ICE_SERVERS` rỗng, backend dựng danh sách từ `STUN_URLS` (mặc định `stun:stun.l.google.com:19302`) và `TURN_URLS`/`TURN_USERNAME`/`TURN_CREDENTIAL`. Sau khi join, FE lấy `GET /meetings/M/ice-config` và tạo `new RTCPeerConnection({iceServers: response.data.iceServers})`. `turn_configured` chỉ xác nhận có URL TURN trong cấu hình, không phải đã kiểm tra được kết nối TURN. Không có cấu hình hạ tầng mặc định. Chỉ STUN có thể không đủ khi NAT khắt khe; cần TURN hợp lệ và kiểm thử thực tế hai mạng khác nhau. Có thể ép `iceTransportPolicy: "relay"` trong bài test FE để kiểm chứng TURN. Repo này không chứa FE nên việc truyền iceServers vào peer connection cần phía FE xác nhận.
 
 ## 5. BE-05 Recorded AI analysis
 
@@ -254,12 +302,28 @@ Không thấy mặt: `face_detected=false`, `emotion="fail_detection"`, `face_id
 
 Contract: `emotions/model.py`, `emotions/schema.py`, `AIClient.analyze_frame`, `AI-CONTRACT.md`.
 
+## 6b. Timeline và chatbot (contract v1, owner Tú)
+
+Đặc tả đầy đủ, ví dụ payload và quy tắc ở [CONTRACT-v1.md](CONTRACT-v1.md) §5.
+
+| Method/path | Quyền | Ghi chú |
+|---|---|---|
+| POST /meetings/M/emotions/infer | Student đang joined, phòng `realtime` đang `ongoing` | Route chuẩn của suy luận realtime; `POST /meetings/M/frames` là alias deprecated. Response có thêm `model_version` |
+| GET /meetings/M/emotions/timeline | Teacher owner, phòng `after_session`, recording `completed` | Query `recording_id`, `from_seconds`, `to_seconds`, `student_id`. Trả segment `[start,end)` (giây từ đầu video) và `summary` (giây/% trên thời gian phân tích hợp lệ, `coverage`, `dominant_emotion`) |
+| POST /meetings/M/chat | Như timeline | `{"question": "...", "recording_id"?}` → `answer`, `intent` (`GET_EMOTION_BY_TIME`/`FIND_EMOTION`/`UNKNOWN`), `references` để seek video, `parser` (`rules`/`llm`) |
+
+Chưa đủ điều kiện: `409 INVALID_MEETING_MODE` (phòng realtime) hoặc `409 ANALYSIS_NOT_READY` với `details[0].data_status` ∈ `NO_RECORDING`/`QUEUED`/`PROCESSING`/`FAILED`. Student/teacher khác: 403.
+
+Mọi response có header `X-Request-ID` (FE có thể gửi sẵn); envelope lỗi có `data.request_id`.
+
 ## 7. BE-07 Analysis và report
 
 | Method/path | Quyền | Query | Kết quả |
 |---|---|---|---|
 | GET /recordings/R/analysis | Teacher owner | offset>=0, limit=1..2000 | ReportOut |
-| GET /meetings/M/report | Teacher owner | source=auto/batch/realtime, offset, limit | ReportOut |
+| GET /meetings/M/report | Teacher owner | source=auto/batch/realtime, offset, limit, student_id | ReportOut |
+
+`student_id` (tuỳ chọn) lọc báo cáo của một học viên trong phòng nhiều học viên. Batch AI đếm theo cả video, không theo học viên, nên khi có `student_id` thì `auto` dùng dữ liệu realtime. `GET /meetings/M/emotion-logs` cũng nhận `student_id`.
 
 Default offset=0, limit=500, source=auto. Ví dụ một kết quả 100 mẫu:
 
@@ -294,7 +358,7 @@ Contract: `reports/schema.py`, `ReportSelection` read model; repository đọc A
 
 ## Health
 
-`GET /health` trả `data={"status":"ok"}`. `GET /ready` kiểm tra SELECT 1, trả `data={"database":"ok"}`. Readiness chưa đo worker lag hoặc trạng thái Cloudinary/AI; cần bổ sung giám sát vận hành khi deploy.
+`GET /health` trả `data={"status":"ok","env":...,"version":"2.0.0","time":...}`; `GET /` trả lời chào. `GET /ready` kiểm tra SELECT 1, trả `data={"database":"ok"}`. Readiness chưa đo worker lag hoặc trạng thái Cloudinary/AI; cần bổ sung giám sát vận hành khi deploy.
 
 ## Chạy trên SQL Server
 

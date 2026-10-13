@@ -6,6 +6,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException
 
+from app.core.request_id import current_request_id
+
 
 class AppError(Exception):
     def __init__(self, status: int, code: str, message: str, details=None):
@@ -15,10 +17,11 @@ class AppError(Exception):
 
 def error_response(status, code, message, details=None):
     headers = {"WWW-Authenticate": "Bearer"} if status == 401 else None
+    data = {"code": code, "details": details, "request_id": current_request_id()}
     return JSONResponse(
         status_code=status,
         headers=headers,
-        content={"success": False, "data": {"code": code, "details": details}, "message": message},
+        content={"success": False, "data": data, "message": message},
     )
 
 
@@ -44,5 +47,7 @@ def install_handlers(app):
 
     @app.exception_handler(Exception)
     async def unexpected(request: Request, exc: Exception):
-        logging.getLogger(__name__).exception("Unhandled request failure")
+        logging.getLogger(__name__).exception(
+            "Unhandled request failure (request_id=%s)", current_request_id()
+        )
         return error_response(500, "INTERNAL_ERROR", "Internal server error")

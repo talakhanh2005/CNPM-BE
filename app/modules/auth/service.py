@@ -13,7 +13,10 @@ class AuthService:
         self.repo = AuthRepository(db)
 
     def register(self, data):
-        if data.role == "teacher" and not self.settings.allow_teacher_registration:
+        # BE A rule: a whitelisted email is always a teacher, whatever role the client sent.
+        whitelisted = data.email in self.settings.teacher_email_whitelist_list
+        role = "teacher" if whitelisted else data.role
+        if role == "teacher" and not whitelisted and not self.settings.allow_teacher_registration:
             expected = self.settings.teacher_registration_key
             if not expected or not compare_digest(data.teacher_registration_key or "", expected):
                 raise AppError(
@@ -27,7 +30,7 @@ class AuthService:
             user = self.repo.add_user(
                 email=data.email,
                 full_name=data.full_name,
-                role=data.role,
+                role=role,
                 password_hash=hash_password(data.password, self.settings.bcrypt_rounds),
             )
             self.db.commit()
@@ -47,13 +50,8 @@ class AuthService:
         }
 
     def login(self, data):
-        user = self.repo.by_email(data.email)
-        if not user:
-            # Match the bcrypt cost on unknown emails to reduce timing leakage.
-            hash_password(data.password, self.settings.bcrypt_rounds)
-            raise AppError(401, "INVALID_CREDENTIALS", "Invalid email or password")
-        if not verify_password(data.password, user.password_hash):
-            raise AppError(401, "INVALID_CREDENTIALS", "Invalid email or password")
+        # authenticate() matches the bcrypt cost on unknown emails to reduce timing leakage.
+        user = self.authenticate(data.email, data.password)
         result = self.tokens(user.id)
         self.db.commit()
         return result
@@ -70,3 +68,33 @@ class AuthService:
         payload = decode_token(token, "refresh", self.settings)
         self.repo.consume_refresh(payload["jti"], payload["sub"])
         self.db.commit()
+
+    def authenticate(self, email, password):
+        """Return the user for valid credentials (shared by /auth/login and /v1/auth/login)."""
+        user = self.repo.by_email(email.lower())
+        if not user:
+            hash_password(password, self.settings.bcrypt_rounds)
+            raise AppError(401, "INVALID_CREDENTIALS", "Invalid email or password")
+        if not verify_password(password, user.password_hash):
+            raise AppError(401, "INVALID_CREDENTIALS", "Invalid email or password")
+        return user
+
+    def ensure_admin(self):
+        """BE A: create ADMIN_EMAIL/ADMIN_PASSWORD as an admin once; never overwrite."""
+        email = self.settings.admin_email.strip().lower()
+        if not email or self.repo.by_email(email):
+            return False
+        try:
+            self.repo.add_user(
+                email=email,
+                full_name="Administrator",
+                role="admin",
+                password_hash=hash_password(
+                    self.settings.admin_password.get_secret_value(), self.settings.bcrypt_rounds
+                ),
+            )
+            self.db.commit()
+            return True
+        except ValueError:
+            self.db.rollback()
+            return False

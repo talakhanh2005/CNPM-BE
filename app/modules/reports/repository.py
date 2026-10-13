@@ -61,13 +61,16 @@ class ReportRepository:
             ).all()
         )
 
-    def realtime(self, meeting_id, offset, limit):
+    def realtime(self, meeting_id, offset, limit, student_id=None):
         if getattr(self.db, "is_mongo", False):
+            match = {"meeting_id": meeting_id}
+            if student_id:
+                match["student_id"] = student_id
             counts = {
                 item["_id"]: item["count"]
                 for item in self.db.collection("emotion_samples").aggregate(
                     [
-                        {"$match": {"meeting_id": meeting_id}},
+                        {"$match": match},
                         {"$group": {"_id": "$emotion", "count": {"$sum": 1}}},
                     ]
                 )
@@ -75,28 +78,28 @@ class ReportRepository:
             samples = [
                 model_from_doc(EmotionSample, doc)
                 for doc in self.db.collection("emotion_samples")
-                .find({"meeting_id": meeting_id})
+                .find(match)
                 .sort([("timestamp", 1), ("id", 1)])
                 .skip(offset)
                 .limit(limit)
             ]
             mock = (
-                self.db.collection("emotion_samples").count_documents(
-                    {"meeting_id": meeting_id, "mock": True}
-                )
-                > 0
+                self.db.collection("emotion_samples").count_documents({**match, "mock": True}) > 0
             )
             return counts, samples, mock
+        conditions = [EmotionSample.meeting_id == meeting_id]
+        if student_id:
+            conditions.append(EmotionSample.student_id == student_id)
         counts = dict(
             self.db.execute(
                 select(EmotionSample.emotion, func.count())
-                .where(EmotionSample.meeting_id == meeting_id)
+                .where(*conditions)
                 .group_by(EmotionSample.emotion)
             ).all()
         )
         samples = self.db.scalars(
             select(EmotionSample)
-            .where(EmotionSample.meeting_id == meeting_id)
+            .where(*conditions)
             .order_by(EmotionSample.timestamp, EmotionSample.id)
             .offset(offset)
             .limit(limit)
@@ -104,6 +107,6 @@ class ReportRepository:
         mock = self.db.scalar(
             select(func.count())
             .select_from(EmotionSample)
-            .where(EmotionSample.meeting_id == meeting_id, EmotionSample.mock == true())
+            .where(*conditions, EmotionSample.mock == true())
         )
         return counts, samples, mock > 0

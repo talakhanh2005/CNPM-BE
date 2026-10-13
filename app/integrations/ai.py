@@ -4,6 +4,7 @@ from typing import Protocol
 
 import httpx
 
+from app.core.request_id import current_request_id
 from app.integrations.ai_schema import EMOTIONS, BatchResult, FrameResult
 
 
@@ -38,6 +39,7 @@ class MockAIClient:
             timeline=timeline,
             summary="MOCK: synthetic data for integration testing.",
             mock=True,
+            model_version="mock",
         )
 
     async def analyze_frame(self, frame, content_type, frame_id, timestamp):
@@ -52,6 +54,7 @@ class MockAIClient:
             face_id="mock-face",
             probabilities={e: 0.8 if e == emotion else 0.2 / 6 for e in EMOTIONS},
             mock=True,
+            model_version="mock",
         )
 
 
@@ -65,7 +68,11 @@ class HttpAIClient:
         async with httpx.AsyncClient(
             transport=self.transport,
             base_url=self.settings.ai_base_url.rstrip("/"),
-            headers={"Authorization": f"Bearer {self.settings.ai_api_key}"},
+            # X-Request-ID lets AI logs be matched with the BE request (contract v1 §1).
+            headers={
+                "Authorization": f"Bearer {self.settings.ai_api_key}",
+                "X-Request-ID": current_request_id(),
+            },
             follow_redirects=False,
             timeout=httpx.Timeout(timeout, connect=5),
         ) as client:

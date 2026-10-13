@@ -27,3 +27,5 @@ class EmotionSample(Base):
     face_detected: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     failure_reason: Mapped[str | None] = mapped_column(String(16))
     logged: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    # Contract v1 §7: realtime_emotion_logs.model_version (null for older AI builds).
+    model_version: Mapped[str | None] = mapped_column(String(64))

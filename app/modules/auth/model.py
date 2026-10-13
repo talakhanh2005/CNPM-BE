@@ -8,7 +8,9 @@ from app.core.db import Base, UTCDateTime, new_id, now
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (CheckConstraint("role IN ('teacher', 'student')", name="ck_user_role"),)
+    __table_args__ = (
+        CheckConstraint("role IN ('teacher', 'student', 'admin')", name="ck_user_role"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     email: Mapped[str] = mapped_column(String(320), unique=True)
     password_hash: Mapped[str] = mapped_column(String(128))

@@ -14,6 +14,7 @@ class Envelope(BaseModel, Generic[T]):
 class ErrorData(BaseModel):
     code: str
     details: list[dict] | None = None
+    request_id: str | None = None
 
 
 class ErrorEnvelope(Envelope[ErrorData]):

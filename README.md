@@ -1,8 +1,10 @@
 # Face Emotion Backend — MongoDB
 
-Backend FastAPI BE-01 -> BE-07, chạy trực tiếp bằng Python và **MongoDB**, phiên bản 1.1.0.
+Backend FastAPI BE-01 -> BE-07, chạy trực tiếp bằng Python và **MongoDB** (hoặc SQL Server qua Alembic), phiên bản 2.0.0.
 
-REST API, 1 WebSocket endpoint và các collection MongoDB cho auth, meeting, recording, analysis, emotion samples và tài liệu học tập. ConnectionManager cần một API process. Phòng học gồm một giáo viên và một học viên.
+REST API, 1 WebSocket endpoint và các collection MongoDB cho auth, meeting, recording, analysis, emotion samples và tài liệu học tập. ConnectionManager cần một API process. Phòng học gồm một giáo viên và nhiều học viên (tối đa `MAX_ROOM_CONNECTIONS`, mặc định 30 kết nối).
+
+Bản 2.0.0 gộp backend của người A (`feat/BE-tu`) vào backend này: tên/mô tả/tag phòng, sửa và xoá mềm phòng, lịch sử có bộ lọc, ngắt kết nối khi thoát trang, chia sẻ/thu hồi tài liệu và link công khai, media (upload có ký, file ghi của phòng), whitelist email giáo viên, tài khoản admin, API v1 cho user và nhãn cảm xúc. Danh sách endpoint mới ở [API](docs/API.md).
 
 ## Chạy trên Windows
 
@@ -86,7 +88,7 @@ Mỗi package tách router/service/repository/model/schema. Signaling lưu socke
 
 ## Những điểm cần cấu hình khi tích hợp
 
-Teacher đăng ký cần `TEACHER_REGISTRATION_KEY`; có thể bật `ALLOW_TEACHER_REGISTRATION=true` chỉ để demo/test local. Video và tài liệu upload yêu cầu credential Cloudinary. Mặc định `AI_MODE=http`, cấu hình `AI_BASE_URL`/`AI_API_KEY` theo [AI contract](docs/AI-CONTRACT.md). Chỉ đặt rõ `AI_MODE=mock` khi cần dữ liệu giả để test.
+Teacher đăng ký cần email trong `TEACHER_EMAIL_WHITELIST` hoặc `TEACHER_REGISTRATION_KEY`; có thể bật `ALLOW_TEACHER_REGISTRATION=true` chỉ để demo/test local. Đặt `ADMIN_EMAIL`/`ADMIN_PASSWORD` để tạo tài khoản admin lúc khởi động. Video và tài liệu upload yêu cầu credential Cloudinary. Mặc định `AI_MODE=http`, cấu hình `AI_BASE_URL`/`AI_API_KEY` theo [AI contract](docs/AI-CONTRACT.md). Chỉ đặt rõ `AI_MODE=mock` khi cần dữ liệu giả để test.
 
 Upload là raw body với buffer RAM có giới hạn, mặc định 64 MiB và 2 upload đồng thời; không ghi file video local. File dài hơn cần chia thành video/segment hoàn chỉnh trước khi upload. Worker dùng collection `analysis_jobs` và lease token để khôi phục job sau restart. Báo cáo chọn batch hoặc realtime để tránh đếm đôi cùng dữ liệu.
 
@@ -100,6 +102,6 @@ Chưa có credential Cloudinary/AI thật trong repo; local có thể chạy v�
 - Upload tài liệu qua `/meetings/{id}/materials?filename=...`; xem danh sách và tải qua URL ký 5 phút.
 - Socket mới thay socket cũ cùng user. Refresh không tự leave. `ICE_SERVERS` được FE lấy qua `/meetings/{id}/ice-config`; cần FE và hạ tầng xác nhận TURN hoạt động.
 
-MongoDB tự bổ sung collection/index khi khởi động; meeting cũ mặc định realtime. Nếu dùng SQL Server, chạy `python -m alembic upgrade head` trước khi chạy API/worker. Frame request cũ cần bổ sung `frame_id` và `timestamp`; AI response cũ cần nâng cấp theo contract mới. Đổi cấu hình `FRAME_INTERVAL_SECONDS=1` cũ thành `0.3333333333333333` và `MAX_ROOM_CONNECTIONS=100` thành `2` nếu có override.
+MongoDB tự bổ sung collection/index khi khởi động; meeting cũ mặc định realtime. Nếu dùng SQL Server, chạy `python -m alembic upgrade head` trước khi chạy API/worker. Frame request cũ cần bổ sung `frame_id` và `timestamp`; AI response cũ cần nâng cấp theo contract mới. Đổi cấu hình `FRAME_INTERVAL_SECONDS=1` cũ thành `0.3333333333333333`. `MAX_ROOM_CONNECTIONS` giờ nhận 2-100 (mặc định 30); đặt `2` nếu muốn giữ phòng 1 giáo viên + 1 học viên như bản 1.1.0.
 
-Cài dependency kiểm thử bằng `python -m pip install -e ".[test]"`. Các test mới trong `tests/test_classroom_features.py` chạy cả SQLite và MongoDB giả lập; `tests/test_migration.py` kiểm tra migration. Xem [API](docs/API.md) để tích hợp FE.
+Cài dependency kiểm thử bằng `python -m pip install -e ".[test]"`. Các test trong `tests/test_classroom_features.py` và `tests/test_merged_be_a.py` (chức năng gộp từ BE A) chạy cả SQLite và MongoDB giả lập; `tests/test_migration.py` kiểm tra migration lên/xuống. Xem [API](docs/API.md) để tích hợp FE.

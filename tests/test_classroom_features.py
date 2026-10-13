@@ -38,38 +38,76 @@ def result(frame_id, timestamp, emotion="happy"):
     )
 
 
-def test_room_has_one_student_for_lifetime(env, room):
-    assert (
-        env.client.post(f"/meetings/{room}/join", headers=env.headers["other"]).status_code == 409
-    )
+def test_room_accepts_many_students(env, room):
+    # Rooms hold one teacher plus several students (merged decision, replaces 1-1 rooms).
+    response = env.client.post(f"/meetings/{room}/join", headers=env.headers["other"])
+    assert response.status_code == 200, response.text
+    joined = {p["user_id"] for p in response.json()["data"]["participants"]}
+    assert joined == {"teacher", "student", "other"}
+    names = {p["user_id"]: p["full_name"] for p in response.json()["data"]["participants"]}
+    assert names["other"] == "other"
     assert (
         env.client.post(f"/meetings/{room}/join", headers=env.headers["outsider"]).status_code
         == 403
     )
     env.client.post(f"/meetings/{room}/leave", headers=env.headers["student"])
     assert (
-        env.client.post(f"/meetings/{room}/join", headers=env.headers["other"]).status_code == 409
-    )
-    assert (
         env.client.post(f"/meetings/{room}/join", headers=env.headers["student"]).status_code == 200
     )
 
 
-def test_concurrent_student_join(env):
+def test_room_full_and_concurrent_join(env):
     room = env.client.post("/meetings", json={}, headers=env.headers["teacher"]).json()["data"][
         "id"
     ]
+    env.settings.max_room_connections = 2  # teacher + one student
 
     def join(name):
         with env.factory() as db:
             try:
-                MeetingService(db).join(room, env.users[name])
+                MeetingService(db, env.settings).join(room, env.users[name])
                 return 200
             except AppError as exc:
                 return exc.status
 
     with ThreadPoolExecutor(2) as pool:
         assert sorted(pool.map(join, ["student", "other"])) == [200, 409]
+
+
+def test_two_students_signal_and_send_frames(env, room, frame_data):
+    env.client.post(f"/meetings/{room}/join", headers=env.headers["other"])
+    path = f"/ws/meetings/{room}"
+    with env.client.websocket_connect(path) as teacher:
+        connect(teacher, env.tokens["teacher"])
+        with env.client.websocket_connect(path) as first:
+            connect(first, env.tokens["student"])
+            assert teacher.receive_json()["data"]["type"] == "JOIN"
+            with env.client.websocket_connect(path) as second:
+                second.send_json({"type": "AUTH", "token": env.tokens["other"]})
+                peers = second.receive_json()["data"]["peers"]
+                assert {p["user_id"] for p in peers} == {"teacher", "student"}
+                assert teacher.receive_json()["data"]["sender_id"] == "other"
+                assert first.receive_json()["data"]["sender_id"] == "other"
+                second.send_json(
+                    {
+                        "type": "OFFER",
+                        "target_id": "student",
+                        "payload": {"type": "offer", "sdp": "v=0"},
+                    }
+                )
+                assert first.receive_json()["data"]["sender_id"] == "other"
+                second.send_json({"type": "FRAME", "payload": frame_data})
+                event = teacher.receive_json()["data"]
+                assert event["type"] == "EMOTION" and event["student_id"] == "other"
+                assert second.receive_json()["data"]["type"] == "FRAME_RESULT"
+    logs = env.client.get(
+        f"/meetings/{room}/emotion-logs?student_id=other", headers=env.headers["teacher"]
+    ).json()["data"]["items"]
+    assert [item["student_id"] for item in logs] == ["other"]
+    report = env.client.get(
+        f"/meetings/{room}/report?student_id=student", headers=env.headers["teacher"]
+    ).json()["data"]
+    assert report["sample_count"] == 0
 
 
 def test_frame_permissions_and_metadata(env, room, frame_data):

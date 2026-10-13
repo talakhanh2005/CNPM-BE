@@ -7,6 +7,7 @@ from pymongo import ASCENDING, MongoClient
 from app.modules.analysis.model import AnalysisJob, AnalysisResult
 from app.modules.auth.model import RefreshSession, User
 from app.modules.emotions.model import EmotionSample
+from app.modules.materials.model import Material
 from app.modules.meetings.model import Meeting, Participant
 from app.modules.recordings.model import Recording
 
@@ -24,6 +25,9 @@ def model_from_doc(model, doc):
     if model is EmotionSample:
         data.setdefault("face_detected", True)
         data.setdefault("logged", True)
+    if model is Material:
+        # Documents created before the BE A merge were visible to every member.
+        data.setdefault("shared_with_all", True)
     if model is Meeting:
         data.setdefault("mode", "realtime")
         participants = data.pop("participants", [])
@@ -237,6 +241,16 @@ class MongoDatabase:
         self.database.materials.create_index([("id", ASCENDING)], unique=True)
         self.database.materials.create_index([("public_id", ASCENDING)], unique=True)
         self.database.materials.create_index([("meeting_id", ASCENDING), ("created_at", -1)])
+        # Merged BE A lookups: public share links, media by public id, history per student.
+        self.database.materials.create_index([("share_token", ASCENDING)], sparse=True)
+        self.database.meetings.create_index([("recording_public_id", ASCENDING)], sparse=True)
+        self.database.participants.create_index([("user_id", ASCENDING)])
+        self.database.emotion_segments.create_index(
+            [("recording_id", ASCENDING), ("student_id", ASCENDING), ("start_seconds", ASCENDING)]
+        )
+        self.database.emotion_segments.create_index([("meeting_id", ASCENDING)])
+        self.database.emotion_labels.create_index([("id", ASCENDING)], unique=True)
+        self.database.emotion_labels.create_index([("user_id", ASCENDING), ("created_at", -1)])
 
 
 def make_mongo_database(uri: str):

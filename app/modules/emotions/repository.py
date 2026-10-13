@@ -41,19 +41,25 @@ class EmotionRepository:
             ).limit(1)
         )
 
-    def logs(self, meeting_id, offset, limit):
+    def logs(self, meeting_id, offset, limit, student_id=None):
         if getattr(self.db, "is_mongo", False):
+            query = {"meeting_id": meeting_id, "logged": {"$ne": False}}
+            if student_id:
+                query["student_id"] = student_id
             return [
                 model_from_doc(EmotionSample, doc)
                 for doc in self.db.collection("emotion_samples")
-                .find({"meeting_id": meeting_id, "logged": {"$ne": False}})
+                .find(query)
                 .sort([("received_at", 1), ("id", 1)])
                 .skip(offset)
                 .limit(limit)
             ]
+        conditions = [EmotionSample.meeting_id == meeting_id, EmotionSample.logged.is_(True)]
+        if student_id:
+            conditions.append(EmotionSample.student_id == student_id)
         return self.db.scalars(
             select(EmotionSample)
-            .where(EmotionSample.meeting_id == meeting_id, EmotionSample.logged.is_(True))
+            .where(*conditions)
             .order_by(EmotionSample.received_at, EmotionSample.id)
             .offset(offset)
             .limit(limit)

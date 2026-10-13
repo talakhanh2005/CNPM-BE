@@ -71,8 +71,11 @@ class ReportService:
     def meeting(self, meeting_id, user, selection):
         MeetingService(self.db).require(meeting_id, user, owner=True)
         statuses = self.repo.statuses(meeting_id)
+        # Batch counts are per recording, not per student: a student filter uses realtime data.
         batches = (
-            self.repo.batch_results(meeting_id) if selection.source in {"auto", "batch"} else []
+            self.repo.batch_results(meeting_id)
+            if selection.source in {"auto", "batch"} and not selection.student_id
+            else []
         )
         if batches:
             counts, timeline, mock = Counter(), [], False
@@ -101,7 +104,7 @@ class ReportService:
             )
         if selection.source != "batch":
             counts, samples, mock = self.repo.realtime(
-                meeting_id, selection.offset, selection.limit
+                meeting_id, selection.offset, selection.limit, selection.student_id
             )
             timeline = [
                 {

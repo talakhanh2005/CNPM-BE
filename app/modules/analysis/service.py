@@ -48,11 +48,23 @@ async def process_one(session_factory, ai, storage, settings):
             result = await ai.analyze_video(recording_id, url, duration, job_id)
         if any(point.timestamp > duration for point in result.timeline):
             raise ValueError("AI timeline exceeds recording duration")
+        # Contract v1 §6.2: segments must end within the video (small rounding tolerated).
+        if any(segment.end_seconds > duration + 0.5 for segment in result.segments or []):
+            raise ValueError("AI segments exceed recording duration")
+        students = {p.student_id for p in result.timeline if p.student_id}
+        students |= {s.student_id for s in result.segments or [] if s.student_id}
         with session_factory() as db:
-            for student_id in {p.student_id for p in result.timeline if p.student_id}:
+            for student_id in students:
                 if db.get(Participant, (meeting_id, student_id)) is None:
                     raise ValueError("AI returned a student outside the meeting")
-            AnalysisRepository(db).finish(job_id, token, result=result.model_dump(mode="json"))
+            finished = AnalysisRepository(db).finish(
+                job_id, token, result=result.model_dump(mode="json")
+            )
+        if finished:
+            # BE-TU-03: store [start, end) segments for timeline and chat.
+            from app.modules.timeline.service import ingest_recording
+
+            ingest_recording(session_factory, recording_id)
     except Exception as exc:
         logging.getLogger(__name__).warning("AI job %s failed (%s)", job_id, type(exc).__name__)
         with session_factory() as db:

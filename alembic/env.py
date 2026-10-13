@@ -20,6 +20,10 @@ if context.is_offline_mode():
 else:
     engine = make_engine(url, poolclass=pool.NullPool)
     with engine.connect() as connection:
+        if connection.dialect.name == "sqlite":
+            # Batch migrations recreate tables; SQLite would reject dropping referenced tables.
+            connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            connection.commit()
         context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
         with context.begin_transaction():
             context.run_migrations()

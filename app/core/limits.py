@@ -35,7 +35,13 @@ class RequestLimitsMiddleware:
         headers = dict(scope.get("headers", []))
         json_body = b"json" in headers.get(b"content-type", b"").lower()
         try:
-            if scope["path"] in {"/auth/login", "/auth/register", "/auth/refresh"}:
+            if scope["path"] in {
+                "/auth/login",
+                "/auth/register",
+                "/auth/refresh",
+                "/v1/auth/login",
+                "/v1/auth/register",
+            }:
                 peer = (scope.get("client") or ("unknown",))[0]
                 self.limiter.take((peer, scope["path"]), 60, limit=30)
             if json_body:

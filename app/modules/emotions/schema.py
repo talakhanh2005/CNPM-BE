@@ -47,6 +47,7 @@ class EmotionLogOut(ORMModel):
     failure_reason: str | None
     logged: bool
     mock: bool
+    model_version: str | None = None
 
 
 class EmotionLogsOut(BaseModel):

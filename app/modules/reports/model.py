@@ -8,3 +8,5 @@ class ReportSelection:
     source: str = "auto"
     offset: int = 0
     limit: int = 500
+    # Multi-student rooms: restrict realtime samples (and batch points) to one student.
+    student_id: str | None = None

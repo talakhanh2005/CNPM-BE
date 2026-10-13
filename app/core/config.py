@@ -59,10 +59,32 @@ class Settings(BaseSettings):
     bcrypt_rounds: int = Field(default=12, ge=4, le=16)
     allow_teacher_registration: bool = False
     teacher_registration_key: str = ""
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # Merged from BE A: emails here always register as teacher (comma separated).
+    teacher_email_whitelist: str = ""
+    # Merged from BE A: seed one admin account at startup when both are set.
+    admin_email: str = ""
+    admin_password: SecretStr = SecretStr("")
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
     cloudinary_cloud_name: str = ""
     cloudinary_api_key: str = ""
     cloudinary_api_secret: str = ""
+    # Merged from BE A: generic media (recording-file, signed upload, v1 emotions).
+    cloudinary_folder: str = "emotion-media"
+    cloudinary_max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
+    cloudinary_allowed_formats: list[str] = [
+        "jpg",
+        "jpeg",
+        "png",
+        "webp",
+        "mp4",
+        "mov",
+        "webm",
+        "mp3",
+        "wav",
+        "ogg",
+        "m4a",
+    ]
+    cloudinary_upload_timeout: int = Field(default=30, ge=1)
     max_upload_bytes: int = Field(default=64 * 1024 * 1024, ge=1024, le=90 * 1024 * 1024)
     max_recording_seconds: int = Field(default=7200, ge=1)
     upload_slots: int = Field(default=2, ge=1, le=16)
@@ -81,13 +103,57 @@ class Settings(BaseSettings):
     max_document_bytes: int = Field(default=20 * 1024 * 1024, ge=1024)
     # Passed to RTCPeerConnection by the authenticated FE. TURN is infrastructure-owned.
     ice_servers: list[dict] = Field(default_factory=list)
+    # Merged from BE A: used only when ICE_SERVERS is empty.
+    stun_urls: list[str] = ["stun:stun.l.google.com:19302"]
+    turn_urls: list[str] = []
+    turn_username: str = ""
+    turn_credential: SecretStr = SecretStr("")
+    # Chatbot (contract v1 D5): Claude only parses questions; empty key = rules only.
+    anthropic_api_key: SecretStr = SecretStr("")
+    chat_llm_model: str = "claude-opus-5-5"
+    chat_llm_timeout_seconds: float = Field(default=20, gt=0)
     frame_slots: int = Field(default=8, ge=1)
     max_http_json_bytes: int = Field(default=1024 * 1024, ge=1024)
     ws_max_message_bytes: int = Field(default=1024 * 1024, ge=1024)
-    max_room_connections: int = Field(default=2, ge=2, le=2)
+    # One teacher plus students; mesh WebRTC, so keep it small.
+    max_room_connections: int = Field(default=30, ge=2, le=100)
+    max_documents_per_meeting: int = Field(default=100, ge=1)
+
+    @property
+    def teacher_email_whitelist_list(self) -> list[str]:
+        return list(
+            dict.fromkeys(
+                item.strip().lower()
+                for item in self.teacher_email_whitelist.split(",")
+                if item.strip()
+            )
+        )
+
+    @property
+    def allowed_formats_list(self) -> list[str]:
+        return list(dict.fromkeys(item.strip().lower() for item in self.cloudinary_allowed_formats))
+
+    @property
+    def effective_ice_servers(self) -> list[dict]:
+        """ICE_SERVERS wins; otherwise build from STUN_URLS/TURN_* like BE A did."""
+        if self.ice_servers:
+            return self.ice_servers
+        servers = [{"urls": list(self.stun_urls)}] if self.stun_urls else []
+        credential = self.turn_credential.get_secret_value()
+        if self.turn_urls and self.turn_username and credential:
+            servers.append(
+                {
+                    "urls": list(self.turn_urls),
+                    "username": self.turn_username,
+                    "credential": credential,
+                }
+            )
+        return servers
 
     @model_validator(mode="after")
     def validate_deployment(self):
+        if bool(self.admin_email) != bool(self.admin_password.get_secret_value()):
+            raise ValueError("ADMIN_EMAIL and ADMIN_PASSWORD must be configured together")
         if self.database_url and make_url(self.database_url).drivername not in {
             "sqlite",
             "mssql+pyodbc",
