@@ -4,6 +4,7 @@ from sqlalchemy import CheckConstraint, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base, UTCDateTime, new_id, now
+from app.modules.auth.model import User
 
 
 class Meeting(Base):
@@ -38,3 +39,8 @@ class Participant(Base):
     status: Mapped[str] = mapped_column(String(16), default="joined")
     joined_at: Mapped[datetime] = mapped_column(UTCDateTime, default=now)
     left_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    user: Mapped[User] = relationship(lazy="selectin")
+
+    @property
+    def full_name(self):
+        return self.user.full_name if self.user is not None else None

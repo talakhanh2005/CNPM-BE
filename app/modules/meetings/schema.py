@@ -17,6 +17,7 @@ class JoinCodeIn(BaseModel):
 
 class ParticipantOut(ORMModel):
     user_id: str
+    full_name: str | None
     status: Literal["joined", "left"]
     joined_at: datetime
     left_at: datetime | None

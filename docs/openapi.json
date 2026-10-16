@@ -7556,6 +7556,17 @@
             "type": "string",
             "title": "User Id"
           },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -7585,6 +7596,7 @@
         "type": "object",
         "required": [
           "user_id",
+          "full_name",
           "status",
           "joined_at",
           "left_at"

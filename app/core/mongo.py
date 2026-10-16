@@ -86,6 +86,13 @@ class MongoSession:
             if instance is not None:
                 participants = list(self.collection("participants").find({"meeting_id": key}))
                 instance.participants = [model_from_doc(Participant, item) for item in participants]
+                user_ids = [participant.user_id for participant in instance.participants]
+                users = {
+                    doc["id"]: model_from_doc(User, doc)
+                    for doc in self.collection("users").find({"id": {"$in": user_ids}})
+                }
+                for participant in instance.participants:
+                    participant.user = users.get(participant.user_id)
         if model is Participant:
             meeting_id, user_id = key
             instance = model_from_doc(
@@ -94,6 +101,10 @@ class MongoSession:
                     {"meeting_id": meeting_id, "user_id": user_id}
                 ),
             )
+            if instance is not None:
+                instance.user = model_from_doc(
+                    User, self.collection("users").find_one({"id": user_id})
+                )
         if model is Recording:
             instance = model_from_doc(
                 Recording, self.collection("recordings").find_one({"id": key})

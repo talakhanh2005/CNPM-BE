@@ -60,6 +60,12 @@ Contract/mô hình: `auth/model.py`, `auth/schema.py`; nghiệp vụ ở `auth/s
 
 ## 2. BE-02 Meeting
 
+Mỗi phần tử `participants` trong `MeetingOut` có `full_name` lấy từ user hiện tại,
+ví dụ `{"user_id":"S","full_name":"Nguyễn Văn An","status":"joined",...}`.
+Tên được trả ở các API create/get/join/leave/start/end và danh sách meeting của admin;
+không cần quyền admin để xem tên thành viên trong meeting mà user được phép truy cập.
+`full_name` là `null` nếu dữ liệu user liên quan bị thiếu; không cần migration database.
+
 | Method/path | Quyền | Body | Kết quả |
 |---|---|---|---|
 | POST /meetings | Teacher | `{"status":"ongoing"}` hoặc `{"status":"scheduled"}` | MeetingOut, 201 |
