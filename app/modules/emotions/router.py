@@ -45,9 +45,6 @@ def logs(
         {
             "offset": offset,
             "limit": limit,
-            "items": [
-                {column.name: getattr(sample, column.name) for column in sample.__table__.columns}
-                for sample in samples
-            ],
+            "items": [sample.to_doc() for sample in samples],
         }
     )

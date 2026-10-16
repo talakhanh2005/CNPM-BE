@@ -11,7 +11,7 @@ from app.core.errors import AppError
 from app.core.schemas import ok
 from app.integrations.media import SIGNED_RESOURCE_TYPES
 from app.modules.meetings.repository import MeetingRepository
-from app.modules.meetings.service import not_found
+from app.modules.meetings.service import MeetingService, not_found
 
 router = APIRouter(prefix="/media", tags=["Media (BE A)"])
 
@@ -22,6 +22,8 @@ FOLDER_PATTERN = re.compile(r"^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$")
 
 class SignedUploadIn(BaseModel):
     folder: str | None = None
+    # When set, the upload is tied to a meeting and obeys its mode (realtime: 409).
+    meeting_id: str | None = None
     resource_type: str | None = None
     max_bytes: object = None
     allowed_formats: object = None
@@ -32,13 +34,18 @@ def validation_error(message):
 
 
 @router.post("/signed-upload")
-def signed_upload(request: Request, user: CurrentUser, data: SignedUploadIn | None = None):
+def signed_upload(request: Request, user: CurrentUser, db: DB, data: SignedUploadIn | None = None):
     """Signed parameters so the browser uploads straight to Cloudinary.
 
     The real folder is always openemotion/uploads/{user_id}/{folder}; such files are not
     attached to a meeting, so /media/{public_id} does not manage them.
     """
     data = data or SignedUploadIn()
+    if data.meeting_id is not None:
+        meeting = MeetingRepository(db).get(data.meeting_id)
+        if meeting is None or meeting.teacher_id != user.id:
+            raise not_found()
+        MeetingService.require_recording_mode(meeting)
     storage, settings = request.app.state.storage, request.app.state.settings
     folder = data.folder or "misc"
     if not isinstance(folder, str) or not FOLDER_PATTERN.match(folder.strip("/")):

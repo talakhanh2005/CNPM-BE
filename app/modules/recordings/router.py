@@ -30,7 +30,9 @@ router = APIRouter(tags=["BE-04 Recordings"])
 async def upload(meeting_id: str, request: Request, user: Teacher, db: DB):
     """Upload a raw video body (not multipart). RAM-only buffering with hard limits."""
     state = request.app.state
-    await run_in_threadpool(MeetingService(db).require, meeting_id, user, True)
+    meeting = await run_in_threadpool(MeetingService(db).require, meeting_id, user, True)
+    # Reject realtime meetings before the body is read, so nothing reaches Cloudinary (T02).
+    MeetingService.require_recording_mode(meeting)
     await run_in_threadpool(db.commit)
     mime = request.headers.get("content-type", "").split(";")[0].strip().lower()
     if mime not in {"video/mp4", "video/webm", "video/quicktime"}:

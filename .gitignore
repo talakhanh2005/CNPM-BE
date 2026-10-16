@@ -10,3 +10,11 @@ __pycache__/
 .coverage
 htmlcov/
 dist/
+
+# Biến môi trường thật không được commit; chỉ .env.example được đưa lên git.
+.env.*
+!.env.example
+
+# Local logs with credentials
+test_log.md
+.DS_Store

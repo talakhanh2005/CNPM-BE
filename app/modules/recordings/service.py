@@ -22,6 +22,7 @@ class RecordingService:
 
     def upload(self, meeting_id, user, data, content_type):
         meeting = MeetingService(self.db).require(meeting_id, user, owner=True)
+        MeetingService.require_recording_mode(meeting)
         if meeting.status == "scheduled":
             raise AppError(409, "MEETING_NOT_STARTED", "Cannot record a scheduled meeting")
         if not data:

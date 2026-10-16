@@ -360,6 +360,6 @@ Contract: `reports/schema.py`, `ReportSelection` read model; repository đọc A
 
 `GET /health` trả `data={"status":"ok","env":...,"version":"2.0.0","time":...}`; `GET /` trả lời chào. `GET /ready` kiểm tra SELECT 1, trả `data={"database":"ok"}`. Readiness chưa đo worker lag hoặc trạng thái Cloudinary/AI; cần bổ sung giám sát vận hành khi deploy.
 
-## Chạy trên SQL Server
+## Cơ sở dữ liệu
 
-Cấu hình SQL Server và lệnh test từng module nằm trong RUN-AND-TEST.md. API/WS giữ nguyên hợp đồng của bản 1.0; thay đổi database nằm trong adapter, migration và repository.
+Dữ liệu nằm trong MongoDB (cấu hình `MONGO_URI`, xem RUN-AND-TEST.md); file và video nằm trên Cloudinary. API/WS giữ nguyên hợp đồng của bản 1.0.

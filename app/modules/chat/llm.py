@@ -1,19 +1,24 @@
-"""Claude as a fallback question parser (contract v1 D5).
+"""Gemini as a fallback question parser (contract v1 D5).
 
-Only the question text and the label list are sent: no video, frames or faces. Claude returns
-an intent as JSON (structured outputs); answers are always built from database rows.
+Only the question text and the label list are sent: no video, frames or faces. Gemini returns
+an intent as JSON (response schema); answers are always built from database rows. The API key
+travels in the ``x-goog-api-key`` header, never in the URL, and is never logged.
 """
 
 import json
 import logging
+import time
 
-import anthropic
+import httpx
 from pydantic import BaseModel, ValidationError
 
 from app.integrations.ai_schema import SEGMENT_EMOTIONS
 from app.modules.chat.parser import FIND_EMOTION, GET_EMOTION_BY_TIME, UNKNOWN, Intent
 
 logger = logging.getLogger(__name__)
+
+API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
+RETRY_STATUSES = {429, 500, 503}
 
 SYSTEM = (
     "You convert a teacher's question about one classroom video into a query. The video was "
@@ -30,16 +35,16 @@ SYSTEM = (
     + ". Never guess a time or emotion that the question does not state."
 )
 
+# Gemini's response schema is an OpenAPI subset (upper-case type names).
 SCHEMA = {
-    "type": "object",
+    "type": "OBJECT",
     "properties": {
-        "intent": {"type": "string", "enum": [GET_EMOTION_BY_TIME, FIND_EMOTION, UNKNOWN]},
-        "start_seconds": {"type": "number"},
-        "end_seconds": {"type": "number"},
-        "emotion": {"type": "string", "enum": [*SEGMENT_EMOTIONS, "none"]},
+        "intent": {"type": "STRING", "enum": [GET_EMOTION_BY_TIME, FIND_EMOTION, UNKNOWN]},
+        "start_seconds": {"type": "NUMBER"},
+        "end_seconds": {"type": "NUMBER"},
+        "emotion": {"type": "STRING", "enum": [*SEGMENT_EMOTIONS, "none"]},
     },
     "required": ["intent", "start_seconds", "end_seconds", "emotion"],
-    "additionalProperties": False,
 }
 
 
@@ -50,38 +55,61 @@ class LlmIntent(BaseModel):
     emotion: str
 
 
-class ClaudeIntentParser:
+class GeminiIntentParser:
     def __init__(self, settings, client=None):
         self.model = settings.chat_llm_model
-        self.client = client or anthropic.Anthropic(
-            api_key=settings.anthropic_api_key.get_secret_value(),
-            timeout=settings.chat_llm_timeout_seconds,
-            max_retries=1,
+        self.key = settings.gemini_api_key.get_secret_value()
+        self.client = client or httpx.Client(
+            timeout=httpx.Timeout(settings.chat_llm_timeout_seconds, connect=5)
         )
 
+    def _request(self, question):
+        """The response JSON, or None after one retry on a transient overload."""
+        body = {
+            "systemInstruction": {"parts": [{"text": SYSTEM}]},
+            "contents": [{"role": "user", "parts": [{"text": question}]}],
+            "generationConfig": {
+                "temperature": 0,
+                "responseMimeType": "application/json",
+                "responseSchema": SCHEMA,
+            },
+        }
+        for attempt in range(2):
+            try:
+                response = self.client.post(
+                    f"{API_ROOT}/{self.model}:generateContent",
+                    json=body,
+                    headers={"x-goog-api-key": self.key},
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("Chat LLM request failed (%s)", type(exc).__name__)
+                return None
+            if response.status_code in RETRY_STATUSES and attempt == 0:
+                time.sleep(0.6)
+                continue
+            if response.status_code != 200:
+                logger.warning("Chat LLM request failed (HTTP %s)", response.status_code)
+                return None
+            try:
+                return response.json()
+            except ValueError:
+                return None
+        return None
+
     def parse(self, question):
-        """Intent or None when the call fails, is refused or returns an invalid shape."""
-        try:
-            response = self.client.beta.messages.create(
-                model=self.model,
-                max_tokens=2048,
-                system=SYSTEM,
-                messages=[{"role": "user", "content": question}],
-                output_config={
-                    "effort": "low",
-                    "format": {"type": "json_schema", "schema": SCHEMA},
-                },
-                # Policy declines are re-run on a fallback model chosen by the API.
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
-            )
-        except (anthropic.APIStatusError, anthropic.APIConnectionError) as exc:
-            logger.warning("Chat LLM request failed (%s)", type(exc).__name__)
+        """Intent or None when the call fails, is blocked or returns an invalid shape."""
+        data = self._request(question)
+        if not data:
             return None
-        if response.stop_reason in {"refusal", "max_tokens"}:
-            logger.warning("Chat LLM stopped with %s", response.stop_reason)
+        candidates = data.get("candidates") or []
+        if not candidates or data.get("promptFeedback", {}).get("blockReason"):
+            logger.warning("Chat LLM returned no usable candidate")
             return None
-        text = next((block.text for block in response.content if block.type == "text"), "")
+        if candidates[0].get("finishReason") not in {None, "STOP"}:
+            logger.warning("Chat LLM stopped with %s", candidates[0].get("finishReason"))
+            return None
+        parts = candidates[0].get("content", {}).get("parts") or []
+        text = next((part["text"] for part in parts if "text" in part), "")
         try:
             data = LlmIntent.model_validate(json.loads(text))
         except (ValueError, ValidationError):
@@ -101,6 +129,6 @@ class ClaudeIntentParser:
 
 def build_intent_parser(settings):
     """None when no API key is configured: the chatbot then uses rules only."""
-    if not settings.anthropic_api_key.get_secret_value():
+    if not settings.gemini_api_key.get_secret_value():
         return None
-    return ClaudeIntentParser(settings)
+    return GeminiIntentParser(settings)

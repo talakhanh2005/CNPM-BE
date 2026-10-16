@@ -1,7 +1,7 @@
 # API & Schema Contract v1 — SIA / OpenEmotion
 
-> **Trạng thái:** BẢN NHÁP chờ duyệt tại M0 (12/10/2026) — soạn bởi Tú (BE-TU-01).
-> **Người duyệt:** Tiền (BE), Khánh (AI, Team Lead), Tùng (FE).
+> **Trạng thái:** **ĐÃ CHỐT v1 (16/10/2026)** — soạn bởi Tú (BE-TU-01). Mọi thay đổi sau đây phải ghi vào Changelog (mục 11) và báo cả 4 người.
+> **Người duyệt:** Tiền (BE), Khánh (AI, Team Lead), Tùng (FE) — đã chốt.
 > **Phạm vi:** FE ↔ BE ↔ AI cho giai đoạn 12/10–23/10, căn cứ `README_SIA_CHOT_NHIEM_VU_12-23_10_2026.md`.
 > **Nguồn sự thật kỹ thuật:** code backend nhánh `feat/merge-a-b`, `docs/openapi.json` (sinh từ code), `docs/API.md` (chi tiết toàn bộ endpoint), `docs/AI-CONTRACT.md` (BE ↔ AI).
 
@@ -9,7 +9,7 @@ Mọi thay đổi sau khi duyệt phải ghi vào [Changelog](#11-changelog) và
 
 ---
 
-## 0. Tóm tắt các quyết định cần duyệt
+## 0. Các quyết định đã chốt
 
 | ID | Quyết định đề xuất | Lý do | Người duyệt chính |
 |---|---|---|---|
@@ -17,7 +17,7 @@ Mọi thay đổi sau khi duyệt phải ghi vào [Changelog](#11-changelog) và
 | D2 | Không tạo route trùng nghĩa: `POST /meetings/{id}/emotions/infer` là route chuẩn; `POST /meetings/{id}/frames` giữ làm **alias deprecated** (cùng handler) tới hết 23/10. | Đúng tên README, không phá FE đang chạy. | Tùng |
 | D3 | AI video trả thêm `segments` + `model_version` (tuỳ chọn). Khi AI chưa trả `segments`, BE **tự dựng segment** từ `timeline` điểm theo thuật toán §6.3 và đánh dấu `segments_source="derived"`. | Không block BE/FE chờ AI-KHANH-05; khi AI trả segment thật thì BE dùng luôn, không đổi API. | Khánh |
 | D4 | Thời gian trong timeline/chat tính bằng **giây từ đầu video** (float), khoảng **`[start, end)`**. Thời gian hệ thống: ISO-8601 UTC. | Theo README §6. | Cả nhóm |
-| D5 | Chatbot: LLM (Claude, `claude-opus-5-5`) **chỉ dùng để hiểu câu hỏi** khi bộ luật không nhận ra intent; câu trả lời luôn dựng theo mẫu từ dữ liệu DB. Key ở biến môi trường `ANTHROPIC_API_KEY` của BE; thiếu key thì chatbot vẫn chạy bằng luật. | "Không trả lời bịa", "không hardcode key", "không gửi video/frame lên LLM". | Khánh |
+| D5 | Chatbot: LLM (Gemini, `gemini-3.5-flash`) **chỉ dùng để hiểu câu hỏi** khi bộ luật không nhận ra intent; câu trả lời luôn dựng theo mẫu từ dữ liệu DB. Key ở biến môi trường `GEMINI_API_KEY` của BE; thiếu key thì chatbot vẫn chạy bằng luật. | "Không trả lời bịa", "không hardcode key", "không gửi video/frame lên LLM". | Khánh |
 | D6 | Timeline/chat/report sau buổi học chỉ mở cho **Teacher chủ phòng**, meeting `after_session`, recording đã `COMPLETED`. Student và người ngoài nhận 403. | README T06, T10. | Tiền |
 | D7 | Một meeting có thể có nhiều recording; timeline/chat mặc định lấy **recording hoàn thành mới nhất**, chọn khác bằng `recording_id`. | Hệ thống hiện cho upload nhiều video. | Tiền, Tùng |
 
@@ -60,15 +60,16 @@ Trạng thái: **Có** = chạy trong code hiện tại; **Mới (Tú)** = thêm
 |---|---|---|---|---|
 | POST | `/meetings` | Tiền | Có | `mode` mặc định `realtime`; README muốn **bắt buộc** — Tiền chốt |
 | GET | `/meetings`, `/meetings/history` | Tiền | Có | |
+| GET | `/meetings/lookup?code=` | Tú | **Mới (16/10)** | Kiểm tra mã phòng không join: 200 / 404 `MEETING_NOT_FOUND` / 409 `MEETING_NOT_ACTIVE` / 403. FE gọi trước khi mở phòng chờ (U09) |
 | GET | `/meetings/{id}` | Tiền | Có | Trả `mode`, `status` |
 | PUT (README: PATCH) | `/meetings/{id}` | Tiền | Có | Sửa name/description/tags. Tiền chốt PUT hay PATCH; chặn đổi mode sau khi bắt đầu (hiện mode không sửa được) |
 | DELETE | `/meetings/{id}` | Tiền | Có | Xoá mềm |
 | POST | `/meetings/{id}/end` | Tiền | Có | Idempotent; WS phát `MEETING_ENDED` |
-| POST | `/meetings/{id}/recordings` (upload raw) | Tiền | Có | **Thiếu chặn mode**: realtime phải 409 (T02) |
+| POST | `/meetings/{id}/recordings` (upload raw), `/recording`, `/recording-file`, `/media/signed-upload` (kèm `meeting_id`) | Tiền | Có | Realtime → 409 `INVALID_MEETING_MODE` (T02, đã chặn ở BE từ 16/10) |
 | POST | `/meetings/{id}/recordings/upload-signature`, `/confirm` | Tiền | Chưa có | BE-TIEN-05; hiện có `/media/signed-upload` dùng chung |
 | GET | `/meetings/{id}/report`, `/meetings/{id}/analytics` | Tiền | `/report` Có | **`/report` đang trả cả dữ liệu realtime** — cần chặn theo D6; nên dùng lại `summary` của §5.4 |
 | POST | `/meetings/{id}/emotions/infer` | **Tú** | **Mới (Tú)** | Alias cũ `/meetings/{id}/frames` (D2) |
-| WS | `/ws/meetings/{id}` message `FRAME` | **Tú** | Có, thêm `model_version` | |
+| WS | `/ws/meetings/{id}` message `FRAME` | **Tú** | Có, thêm `model_version` | FE dùng REST `/emotions/infer`; WS vẫn nhận `EMOTION` cho Teacher |
 | GET | `/meetings/{id}/emotion-logs` | **Tú** | Có, thêm `model_version` | Log realtime đã lọc (đổi trạng thái hoặc mỗi 90 giây) |
 | GET | `/meetings/{id}/emotions/timeline` | **Tú** | **Mới (Tú)** | §5.3 |
 | POST | `/meetings/{id}/chat` | **Tú** | **Mới (Tú)** | §5.5 |
@@ -217,7 +218,7 @@ Response 200 (`data`):
 | `UNKNOWN` | Câu ngoài phạm vi | 200, `references=[]`, câu trả lời hướng dẫn cách hỏi |
 
 - Định dạng giờ nhận được: `mm:ss`, `hh:mm:ss`, "X phút Y giây", "X giây", "phút X".
-- `parser`: `rules` (bộ luật) hoặc `llm` (Claude hiểu câu hỏi khi luật không nhận ra). Kết quả của LLM được kiểm tra schema; sai/không có key → `UNKNOWN`.
+- `parser`: `rules` (bộ luật) hoặc `llm` (Gemini hiểu câu hỏi khi luật không nhận ra). Kết quả của LLM được kiểm tra schema; sai/không có key → `UNKNOWN`.
 - Không gửi video, frame hay khuôn mặt cho LLM; chỉ gửi câu hỏi và danh sách nhãn.
 - `references` click được để FE seek video tới `start_seconds`.
 - Lỗi: như §5.3; câu hỏi rỗng hoặc > 500 ký tự → 422.
@@ -283,13 +284,13 @@ Ghi lại segment của một recording luôn **xoá rồi ghi lại toàn bộ*
 ## 9. Việc của từng người để khớp contract
 
 - **Tú:** §5 toàn bộ; migration `emotion_segments` + `model_version`; request ID; cập nhật OpenAPI.
-- **Tiền:** chặn mode cho upload/ghi hình và report (§4); quyết định PUT/PATCH, `mode` bắt buộc, `started_at`; upload-signature/confirm (BE-TIEN-05); report/analytics dùng `summarize` (§5.4).
+- **Tiền:** ✅ chặn mode cho upload/ghi hình (§4, làm bởi Tú ngày 16/10); còn lại: chặn mode cho report; quyết định PUT/PATCH, `mode` bắt buộc, `started_at`; upload-signature/confirm (BE-TIEN-05); report/analytics dùng `summarize` (§5.4).
 - **Khánh:** thêm `model_version` cho frame + video; trả `segments` (§6.2) khi xong AI-KHANH-05; giữ nhãn và ràng buộc §2/§6.
-- **Tùng:** chuyển sang `/emotions/infer` (hoặc tiếp tục WS `FRAME`); hiển thị `model_version`, `no_face`, `ai_error`; ẩn ghi hình/report/chat với `realtime`; Report gọi `/emotions/timeline` + `/chat`, seek theo `references`.
+- **Tùng:** ✅ FE gọi `POST /emotions/infer` (chỉ khi meeting `realtime`), overlay hiển thị `no_face`/`ai_error`/mất kết nối; ẩn nút ghi hình với `realtime`; trang Report (`SessionReport`) gọi `/emotions/timeline` + `/chat` + `/recordings/{id}/playback`, tua video theo `references`.
 
-## 10. Mock & test fixture
+## 10. Test fixture
 
-- BE chạy `AI_MODE=mock`: frame trả `model_version="mock"`; video trả 20 điểm timeline, BE tự dựng segment (D3).
+- Test dùng `tests/fakes.py::FakeAIClient`; ứng dụng chỉ gọi AI thật. Khi AI chưa trả `segments`, BE tự dựng segment (D3).
 - Fixture timeline/chat dùng trong test: `tests/test_timeline_chat.py`.
 
 ## 11. Changelog
@@ -298,3 +299,6 @@ Ghi lại segment của một recording luôn **xoá rồi ghi lại toàn bộ*
 |---|---|---|---|
 | 12/10/2026 | v1-draft | Bản nháp đầu tiên cho M0 | Tú |
 | 12/10/2026 | v1-draft | BE hiện thực §5 (infer, timeline, chat), §6 (nhận `model_version`/`segments`, tự dựng segment), §7 (`emotion_segments`, `model_version`), request ID. Phần của Tiền/Khánh/Tùng ở §9 chưa làm | Tú |
+| 16/10/2026 | **v1 (chốt)** | Chốt contract v1 cho cả nhóm. Thêm: chặn mode `realtime` ở mọi đường lưu video (`/recordings`, `/recording`, `/recording-file`, `/media/signed-upload` với `meeting_id`) → 409 `INVALID_MEETING_MODE`; FE nối `/emotions/infer`, `/emotions/timeline`, `/chat`; bỏ `AI_MODE=mock`, dữ liệu nằm hoàn toàn trên MongoDB + Cloudinary | Tú |
+| 16/10/2026 | v1.1 | `GET /meetings/{id}/report` trả 409 `INVALID_MEETING_MODE` cho `realtime`; `POST /meetings/{id}/recording` trả 409 `RECORDING_NOT_UPLOADED` khi chưa có video; frame base64 vượt giới hạn trả 413 `FRAME_TOO_LARGE`; AI luôn trả `model_version` (mặc định = tên file checkpoint, đặt bằng `AI_MODEL_VERSION`). Không đổi wire enum (D1) | Tú |
+| 16/10/2026 | v1.2 | Thêm `GET /meetings/lookup?code=` (U09: mã sai không được vào màn hình phòng học). Frame quá lớn luôn trả 413 `FRAME_TOO_LARGE` (A41): body vượt giới hạn được đọc bỏ rồi mới trả lời, nên proxy dev không còn báo 502 | Tú |

@@ -23,6 +23,11 @@ class RateLimiter:
         self.entries[key] = (start, count + 1)
 
 
+# Oversize bodies are read and discarded up to this many bytes before answering 413.
+DRAIN_LIMIT_BYTES = 32 * 1024 * 1024
+FRAME_PATHS = ("/emotions/infer", "/frames")
+
+
 class RequestLimitsMiddleware:
     """Bound JSON body accumulation before parsing; throttle credential endpoints."""
 
@@ -46,17 +51,25 @@ class RequestLimitsMiddleware:
                 self.limiter.take((peer, scope["path"]), 60, limit=30)
             if json_body:
                 # Bound incoming memory before Pydantic/Starlette parse the payload.
-                chunks, total = [], 0
+                chunks, total, oversize = [], 0, False
                 while True:
                     message = await receive()
                     if message["type"] == "http.disconnect":
                         return
                     total += len(message.get("body", b""))
                     if total > self.max_json_bytes:
-                        raise AppError(413, "BODY_TOO_LARGE", "JSON request exceeds size limit")
-                    chunks.append(message)
-                    if not message.get("more_body", False):
+                        # Keep reading (and dropping) the rest of the body, up to a cap, so the
+                        # client, or a dev proxy in front of us, gets a clean 413 instead of a
+                        # connection reset it reports as 502.
+                        oversize, chunks = True, []
+                    elif not oversize:
+                        chunks.append(message)
+                    if not message.get("more_body", False) or total > DRAIN_LIMIT_BYTES:
                         break
+                if oversize:
+                    if scope["path"].endswith(FRAME_PATHS):
+                        raise AppError(413, "FRAME_TOO_LARGE", "Frame exceeds size limit")
+                    raise AppError(413, "BODY_TOO_LARGE", "JSON request exceeds size limit")
                 iterator = iter(chunks)
 
                 async def replay():

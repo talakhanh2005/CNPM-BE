@@ -3,7 +3,7 @@ import logging
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import IntegrityError
+from pymongo.errors import DuplicateKeyError
 from starlette.exceptions import HTTPException
 
 from app.core.request_id import current_request_id
@@ -41,8 +41,8 @@ def install_handlers(app):
     async def http_error(request: Request, exc: HTTPException):
         return error_response(exc.status_code, "HTTP_ERROR", str(exc.detail))
 
-    @app.exception_handler(IntegrityError)
-    async def conflict(request: Request, exc: IntegrityError):
+    @app.exception_handler(DuplicateKeyError)
+    async def conflict(request: Request, exc: DuplicateKeyError):
         return error_response(409, "CONFLICT", "Concurrent update or duplicate resource")
 
     @app.exception_handler(Exception)

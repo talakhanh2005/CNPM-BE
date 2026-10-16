@@ -1,0 +1,42 @@
+services:
+  api:
+    build: .
+    env_file: .env
+    environment:
+      # Ghi đè giá trị trong .env: trong mạng compose Mongo ở host "mongo", app luôn nghe 8000.
+      MONGO_URI: mongodb://mongo:27017/face_emotion
+      PORT: "8000"
+    ports:
+      - "${PORT:-8000}:8000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:8
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  mongo-express:
+    image: mongo-express:1
+    profiles: ["tools"]
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongo:27017
+      ME_CONFIG_BASICAUTH: "false"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  mongo_data:

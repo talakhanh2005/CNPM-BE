@@ -4,6 +4,10 @@ from collections import Counter, defaultdict
 from statistics import median
 
 EPSILON = 1e-6
+# Same default as the AI service (AI_LOW_CONFIDENCE_THRESHOLD). `/v1/analyze/video` does not
+# return an `uncertain` flag, so BE applies the threshold itself: a low-confidence sample is
+# `unknown`, never a specific emotion and never `neutral`.
+LOW_CONFIDENCE = 0.4
 
 
 def _merge(segments):
@@ -47,8 +51,10 @@ def _segment(start, end, emotion, confidence, student_id, samples=None):
     }
 
 
-def _derive_one(points, duration, student_id):
-    """Points of one student -> segments covering [0, duration); gaps become no_face."""
+def _derive_one(points, duration, student_id, low_confidence=LOW_CONFIDENCE):
+    """Points of one student -> segments covering [0, duration).
+
+    Gaps become no_face; samples below ``low_confidence`` become unknown."""
     by_time = defaultdict(list)
     for point in points:
         by_time[point.timestamp].append(point)
@@ -63,7 +69,8 @@ def _derive_one(points, duration, student_id):
             key=lambda point: point.confidence,
         )
         confidence = sum(p.confidence for p in group if p.emotion == best.emotion) / top
-        samples.append((timestamp, best.emotion, confidence))
+        emotion = best.emotion if confidence >= low_confidence else "unknown"
+        samples.append((timestamp, emotion, confidence))
     if not samples:
         return [_segment(0, duration, "no_face", None, student_id)] if duration > 0 else []
 
@@ -94,7 +101,7 @@ def _derive_one(points, duration, student_id):
     return _merge(segments)
 
 
-def build_segments(result, duration):
+def build_segments(result, duration, low_confidence=LOW_CONFIDENCE):
     """Return (segments, source). AI segments win; otherwise derive them from timeline points."""
     if result.segments:
         segments = [
@@ -117,5 +124,5 @@ def build_segments(result, duration):
         by_student[None] = []
     segments = []
     for student_id in sorted(by_student, key=lambda key: key or ""):
-        segments.extend(_derive_one(by_student[student_id], duration, student_id))
+        segments.extend(_derive_one(by_student[student_id], duration, student_id, low_confidence))
     return segments, "derived"

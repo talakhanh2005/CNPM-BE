@@ -2,7 +2,6 @@ import secrets
 from datetime import timedelta
 
 from pymongo.errors import DuplicateKeyError
-from sqlalchemy.exc import IntegrityError
 
 from app.core.concurrency import meeting_operation
 from app.core.db import now
@@ -64,6 +63,16 @@ class MeetingService:
             )
         return meeting
 
+    @staticmethod
+    def require_recording_mode(meeting):
+        """README section 1.2: only after_session meetings may store video (T02)."""
+        if meeting.mode != "after_session":
+            raise AppError(
+                409,
+                "INVALID_MEETING_MODE",
+                "Recording and video storage are only allowed in after_session meetings",
+            )
+
     def require_owner_or_404(self, meeting_id, user):
         meeting = self.repo.get(meeting_id)
         if meeting is None or user.role != "teacher" or meeting.teacher_id != user.id:
@@ -94,7 +103,7 @@ class MeetingService:
                 self.db.commit()
                 self.db.refresh(meeting)
                 return meeting
-            except (IntegrityError, DuplicateKeyError):
+            except DuplicateKeyError:
                 self.db.rollback()
         raise AppError(503, "CODE_UNAVAILABLE", "Unable to allocate meeting code")
 
@@ -127,6 +136,23 @@ class MeetingService:
         self.db.commit()
         self.db.refresh(meeting)
         return meeting
+
+    def lookup_code(self, code, user):
+        """Check a room code without joining: same rules as join, no side effects (U09)."""
+        meeting = self.repo.by_code(code)
+        if not meeting:
+            raise AppError(404, "MEETING_NOT_FOUND", "Meeting code not found")
+        if meeting.status != "ongoing":
+            raise AppError(409, "MEETING_NOT_ACTIVE", "Meeting is not ongoing")
+        if user.role != "student" and user.id != meeting.teacher_id:
+            raise AppError(403, "FORBIDDEN", "Only the owning teacher or students may join")
+        return {
+            "id": meeting.id,
+            "code": meeting.code,
+            "name": meeting.name,
+            "mode": meeting.mode or "realtime",
+            "status": meeting.status,
+        }
 
     def join_code(self, code, user):
         meeting = self.repo.by_code(code)
@@ -223,6 +249,12 @@ class MeetingService:
         meeting = self.repo.get(meeting_id)
         if meeting is None or not self.can_record(meeting, user):
             raise not_found()
+        self.require_recording_mode(meeting)
+        if not meeting.recording_public_id and not self.repo.has_recording(meeting_id):
+            # Without an uploaded video this would show "processing" forever.
+            raise AppError(
+                409, "RECORDING_NOT_UPLOADED", "Upload the video before saving its metadata"
+            )
         seconds = 60 if duration_seconds is None else duration_seconds
         meeting.duration_minutes = max(1, round(seconds / 60))
         meeting.recording_status = "processing"

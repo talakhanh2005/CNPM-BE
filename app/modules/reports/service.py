@@ -1,5 +1,6 @@
 from collections import Counter
 
+from app.core.errors import AppError
 from app.integrations.ai_schema import EMOTIONS, BatchResult
 from app.modules.meetings.service import MeetingService
 from app.modules.recordings.service import RecordingService
@@ -69,7 +70,10 @@ class ReportService:
         )
 
     def meeting(self, meeting_id, user, selection):
-        MeetingService(self.db).require(meeting_id, user, owner=True)
+        meeting = MeetingService(self.db).require(meeting_id, user, owner=True)
+        if meeting.mode != "after_session":
+            # README 1.2: a Report exists only for post-session analysis (contract v1 section 4).
+            raise AppError(409, "INVALID_MEETING_MODE", "Report exists only for after_session")
         statuses = self.repo.statuses(meeting_id)
         # Batch counts are per recording, not per student: a student filter uses realtime data.
         batches = (

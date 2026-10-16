@@ -1,6 +1,6 @@
 # Hợp đồng BE ↔ AI
 
-`app/integrations/ai_schema.py` là nguồn schema chung. Mặc định `AI_MODE=http`; đặt rõ `AI_MODE=mock` chỉ khi test. Không có callback endpoint; BE worker chờ HTTP response trong process nền. HTTP 202 từ AI chưa được hỗ trợ: nếu AI thật tự enqueue và trả job_id, cần bổ sung adapter polling/callback riêng.
+`app/integrations/ai_schema.py` là nguồn schema chung. BE luôn gọi AI qua HTTP (`AI_BASE_URL`, `AI_API_KEY`). Không có callback endpoint; BE worker chờ HTTP response trong process nền. HTTP 202 từ AI chưa được hỗ trợ: nếu AI thật tự enqueue và trả job_id, cần bổ sung adapter polling/callback riêng.
 
 ## Batch: POST /v1/analyze/video
 
@@ -69,11 +69,11 @@ HTTP lỗi, timeout, schema sai hoặc metadata không khớp được BE lưu t
 
 BE nhận mặc định 3 FPS, cấu hình 2–5 FPS bằng `FRAME_INTERVAL_SECONDS=0.5..0.2`. Chat log chỉ phát khi trạng thái/lý do lỗi thay đổi hoặc sau 90 giây tính từ log gần nhất. Mọi kết quả đều được lưu để báo cáo không bị lệch phân bố do lọc chat log. Kết quả trả chậm hơn frame đã xử lý vẫn được lưu nhưng không làm lùi trạng thái trực tiếp.
 
-## Mock và adapter
+## Adapter
 
-`MockAIClient` chọn pseudo-random bằng seed recording_id hoặc hash frame để test có thể tái lập. Cùng một frame có cùng kết quả mock; đây là chủ ý để test ổn định. Mock batch tạo 20 điểm nằm trong duration; mọi kết quả có `mock=true` và summary được đánh dấu. Mock không đọc video, không suy luận AI.
+Bản giả `FakeAIClient` chỉ nằm trong `tests/fakes.py` để unit test; ứng dụng không tạo kết quả AI giả.
 
-`create_app(settings, session_factory, ai, storage)` hỗ trợ thay adapter trong test. `HttpAIClient` hỗ trợ httpx transport cho contract test. Production config không cho `AI_MODE=mock`.
+`create_app(settings, session_factory, ai, storage)` hỗ trợ thay adapter trong test. `HttpAIClient` hỗ trợ httpx transport cho contract test. Thiếu `AI_API_KEY` thì app/worker không khởi động.
 
 ## Trạng thái và retry
 

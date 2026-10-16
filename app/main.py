@@ -6,12 +6,9 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
 
 from app import models  # noqa: F401
 from app.core.config import get_settings
-from app.core.db import make_database
 from app.core.errors import AppError, install_handlers
 from app.core.limits import RateLimiter, RequestLimitsMiddleware
 from app.core.mongo import make_mongo_database
@@ -65,7 +62,7 @@ def install_log_redaction():
 def log_startup(settings, driver):
     """Important configuration without secrets, to debug deployments."""
     logger.info(
-        "Startup: env=%s db=%s cors=%s cloudinary_configured=%s ai_mode=%s",
+        "Startup: env=%s db=%s cors=%s cloudinary_configured=%s ai=%s",
         settings.environment,
         driver,
         settings.cors_origins,
@@ -76,7 +73,7 @@ def log_startup(settings, driver):
                 settings.cloudinary_api_secret,
             )
         ),
-        settings.ai_mode,
+        settings.ai_base_url,
     )
     if settings.environment == "production" and not (
         settings.teacher_email_whitelist_list or settings.teacher_registration_key
@@ -85,18 +82,13 @@ def log_startup(settings, driver):
 
 
 def create_app(settings=None, session_factory=None, ai=None, storage=None):
-    """Application factory; inject SQLAlchemy sessions and adapters for integration tests."""
+    """Application factory; inject a MongoDB session factory and adapters for integration tests."""
     settings = settings or get_settings()
     database = None
-    engine = None
     driver = "injected"
     if session_factory is None:
-        if settings.mongo_uri:
-            database, session_factory = make_mongo_database(settings.mongo_uri)
-            driver = "mongodb"
-        else:
-            engine, session_factory = make_database(settings.sqlalchemy_url)
-            driver = "sqlalchemy"
+        database, session_factory = make_mongo_database(settings.mongo_uri)
+        driver = "mongodb"
 
     @asynccontextmanager
     async def lifespan(app):
@@ -108,15 +100,13 @@ def create_app(settings=None, session_factory=None, ai=None, storage=None):
                     if AuthService(db, settings).ensure_admin():
                         logger.info("Admin account created for %s", settings.admin_email)
             except Exception:
-                # A missing table (migrations not applied) must not stop the API.
+                # An unreachable database must not stop the API from starting.
                 logger.exception("Could not seed the admin account")
         yield
         for room in list(app.state.manager.repo.rooms):
             await app.state.manager.close_room(room)
         if database is not None:
             database.close()
-        if engine is not None:
-            engine.dispose()
 
     app = FastAPI(
         title="Face Emotion Backend",
@@ -131,7 +121,7 @@ def create_app(settings=None, session_factory=None, ai=None, storage=None):
     app.state.frame_limiter = RateLimiter()
     app.state.frame_semaphore = asyncio.Semaphore(settings.frame_slots)
     app.state.upload_semaphore = asyncio.Semaphore(settings.upload_slots)
-    # Chatbot question parser (Claude); None = rules only. Tests replace it.
+    # Chatbot question parser (Gemini); None = rules only. Tests replace it.
     app.state.chat_llm = build_intent_parser(settings)
     install_handlers(app)
     app.add_middleware(RequestLimitsMiddleware, max_json_bytes=settings.max_http_json_bytes)
@@ -199,30 +189,6 @@ def create_app(settings=None, session_factory=None, ai=None, storage=None):
                     [{"type": exc.__class__.__name__, "msg": str(exc), "database": "mongodb"}],
                 ) from exc
             return ok({"database": "ok", "driver": "mongodb"})
-        try:
-            with session_factory() as db:
-                db.execute(text("SELECT 1"))
-        except SQLAlchemyError as exc:
-            raise AppError(
-                503,
-                "DATABASE_UNAVAILABLE",
-                "Database is not ready",
-                [
-                    {
-                        "type": exc.__class__.__name__,
-                        "msg": str(exc),
-                        "config": {
-                            "database_url_set": bool(settings.database_url),
-                            "driver": settings.sqlserver_driver,
-                            "server": settings.sqlserver_server,
-                            "database": settings.sqlserver_database,
-                            "trusted_connection": settings.sqlserver_trusted_connection,
-                            "encrypt": settings.sqlserver_encrypt,
-                            "trust_server_certificate": settings.sqlserver_trust_server_certificate,
-                        },
-                    }
-                ],
-            ) from exc
-        return ok({"database": "ok"})
+        return ok({"database": "ok", "driver": driver})
 
     return app

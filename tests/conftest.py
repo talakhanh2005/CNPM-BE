@@ -5,15 +5,15 @@ from types import SimpleNamespace
 
 import mongomock
 import pytest
+from fakes import FakeAIClient
 from fastapi.testclient import TestClient
 from PIL import Image
 
 from app.core.config import Settings
-from app.core.db import Base, make_database, now
+from app.core.db import now
 from app.core.mongo import MongoDatabase, MongoSession
 from app.core.security import issue_token
 from app.integrations import media
-from app.integrations.ai import MockAIClient
 from app.integrations.storage import UploadedVideo
 from app.main import create_app
 from app.modules.auth.model import User
@@ -58,6 +58,9 @@ class Storage:
         self.media[public_id] = info
         return info
 
+    def signed_upload(self, *, folder, resource_type, max_bytes=None, allowed_formats=None):
+        return {"folder": folder, "resource_type": resource_type, "signature": "test"}
+
     def media_info(self, public_id, resource_type):
         if public_id not in self.media:
             raise media.media_not_found()
@@ -90,28 +93,22 @@ class Storage:
         return "https://storage.test/signed-document"
 
 
-@pytest.fixture(params=["sqlite", "mongo"])
-def env(request, tmp_path):
+@pytest.fixture
+def env():
     settings = Settings(
         _env_file=None,
         jwt_secret="test-secret-" * 4,
-        ai_mode="mock",
-        database_url="sqlite://",
+        ai_api_key="test-ai-key",
         bcrypt_rounds=4,
     )
-    engine = None
-    if request.param == "sqlite":
-        engine, factory = make_database(f"sqlite:///{tmp_path / 'test.db'}")
-        Base.metadata.create_all(engine)
-    else:
-        database = mongomock.MongoClient(tz_aware=True).test
-        indexes = MongoDatabase("mongodb://unused/test")
-        indexes.database = database
-        indexes.ensure_indexes()
+    database = mongomock.MongoClient(tz_aware=True).test
+    indexes = MongoDatabase("mongodb://unused/test")
+    indexes.database = database
+    indexes.ensure_indexes()
 
-        @contextmanager
-        def factory():
-            yield MongoSession(database)
+    @contextmanager
+    def factory():
+        yield MongoSession(database)
 
     users = {}
     with factory() as db:
@@ -133,7 +130,7 @@ def env(request, tmp_path):
         db.commit()
     tokens = {name: issue_token(name, "access", settings) for name in users}
     headers = {name: {"Authorization": f"Bearer {token}"} for name, token in tokens.items()}
-    app = create_app(settings, factory, MockAIClient(), Storage(settings))
+    app = create_app(settings, factory, FakeAIClient(), Storage(settings))
     with TestClient(app) as client:
         yield SimpleNamespace(
             client=client,
@@ -144,8 +141,6 @@ def env(request, tmp_path):
             tokens=tokens,
             headers=headers,
         )
-    if engine:
-        engine.dispose()
 
 
 @pytest.fixture
@@ -155,6 +150,21 @@ def room(env):
     room_id = response.json()["data"]["id"]
     response = env.client.post(f"/meetings/{room_id}/join", headers=env.headers["student"])
     assert response.status_code == 200, response.text
+    return room_id
+
+
+@pytest.fixture
+def session_room(env):
+    """An after_session meeting (video recording allowed) with the student joined."""
+    response = env.client.post(
+        "/meetings", json={"mode": "after_session"}, headers=env.headers["teacher"]
+    )
+    assert response.status_code == 201, response.text
+    room_id = response.json()["data"]["id"]
+    assert (
+        env.client.post(f"/meetings/{room_id}/join", headers=env.headers["student"]).status_code
+        == 200
+    )
     return room_id
 
 

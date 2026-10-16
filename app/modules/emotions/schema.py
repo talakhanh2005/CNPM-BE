@@ -13,7 +13,7 @@ class FrameIn(BaseModel):
     timestamp: AwareDatetime
     frame_base64: str = Field(
         min_length=1,
-        max_length=700000,
+        max_length=1_048_576,  # never stricter than the HTTP body limit: oversize is always 413
         description="Raw base64 without data: prefix; JPEG/PNG only",
     )
     content_type: Literal["image/jpeg", "image/png"]

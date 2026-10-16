@@ -203,7 +203,24 @@ def test_disconnect_then_reopen_rejoins(env, room):
     assert ignored.json()["data"]["status"] == "ignored"
 
 
-def test_recording_metadata_times_out_without_ai(env, room):
+def test_recording_metadata_requires_an_uploaded_video(env, session_room):
+    response = env.client.post(
+        f"/meetings/{session_room}/recording",
+        json={"durationSeconds": 60},
+        headers=env.headers["student"],
+    )
+    assert response.status_code == 409
+    assert response.json()["data"]["code"] == "RECORDING_NOT_UPLOADED"
+    meeting = env.client.get(f"/meetings/{session_room}", headers=env.headers["teacher"])
+    assert meeting.json()["data"]["recording_status"] == "none"
+
+
+def test_recording_metadata_times_out_without_ai(env, session_room):
+    room = session_room
+    with env.factory() as db:
+        meeting = db.get(Meeting, room)
+        meeting.recording_public_id = "emotion-media/rec-1"
+        db.commit()
     path = f"/meetings/{room}/recording"
     assert (
         env.client.post(
@@ -223,7 +240,8 @@ def test_recording_metadata_times_out_without_ai(env, room):
     assert data["failed_reason"] == "timeout_waiting_ai"
 
 
-def test_recording_file_and_media_endpoints(env, room):
+def test_recording_file_and_media_endpoints(env, session_room):
+    room = session_room
     path = f"/meetings/{room}/recording-file"
     bad = env.client.post(
         path, files={"file": ("rec.webm", b"MZ fake", "video/webm")}, headers=env.headers["teacher"]
@@ -447,3 +465,87 @@ def test_health_root_and_share_token_redaction(env):
     )
     RedactShareTokenFilter().filter(record)
     assert record.args[1] == "/api/share/documents/***?x=1"
+
+
+def test_t02_realtime_meeting_rejects_every_recording_path(env, room):
+    """README T02: no video reaches storage from a realtime meeting; 409, not 403."""
+    teacher = env.headers["teacher"]
+    storage = env.app.state.storage
+    stored_before = len(storage.media)
+    video = {**teacher, "Content-Type": "video/webm"}
+    attempts = [
+        env.client.post(f"/meetings/{room}/recordings", content=WEBM, headers=video),
+        env.client.post(
+            f"/meetings/{room}/recording", json={"durationSeconds": 60}, headers=teacher
+        ),
+        env.client.post(
+            f"/meetings/{room}/recording-file",
+            files={"file": ("rec.webm", WEBM, "video/webm")},
+            headers=teacher,
+        ),
+        env.client.post("/media/signed-upload", json={"meeting_id": room}, headers=teacher),
+    ]
+    for response in attempts:
+        assert response.status_code == 409, response.text
+        assert response.json()["data"]["code"] == "INVALID_MEETING_MODE"
+    assert len(storage.media) == stored_before
+    # A student calling the recording-metadata endpoint is stopped the same way.
+    student = env.client.post(
+        f"/meetings/{room}/recording", json={"durationSeconds": 60}, headers=env.headers["student"]
+    )
+    assert student.status_code == 409
+    meeting = env.client.get(f"/meetings/{room}", headers=teacher).json()["data"]
+    assert meeting["recording_status"] == "none"
+
+
+def test_signed_upload_for_after_session_meeting_is_allowed(env, session_room):
+    response = env.client.post(
+        "/media/signed-upload",
+        json={"meeting_id": session_room, "resource_type": "video"},
+        headers=env.headers["teacher"],
+    )
+    assert response.status_code in {200, 503}, response.text
+
+
+def test_lookup_code_does_not_join_and_rejects_bad_codes(env, room):
+    teacher = env.headers["teacher"]
+    code = env.client.get(f"/meetings/{room}", headers=teacher).json()["data"]["code"]
+    stranger = env.headers["other"]
+    before = env.client.get(f"/meetings/{room}", headers=teacher).json()["data"]["participants"]
+    found = env.client.get("/meetings/lookup", params={"code": code}, headers=stranger)
+    assert found.status_code == 200, found.text
+    assert found.json()["data"]["id"] == room and found.json()["data"]["mode"] == "realtime"
+    after = env.client.get(f"/meetings/{room}", headers=teacher).json()["data"]["participants"]
+    assert after == before  # looking up a code never joins
+    missing = env.client.get("/meetings/lookup", params={"code": "ZZZZZZZZZZ"}, headers=stranger)
+    assert missing.status_code == 404 and missing.json()["data"]["code"] == "MEETING_NOT_FOUND"
+    assert (
+        env.client.get("/meetings/lookup", params={"code": "a b"}, headers=stranger).status_code
+        == 422
+    )
+    assert env.client.get("/meetings/lookup", params={"code": code}).status_code == 401
+    # A teacher who does not own the room cannot enter it either.
+    other_teacher = env.client.get(
+        "/meetings/lookup", params={"code": code}, headers=env.headers["outsider"]
+    )
+    assert other_teacher.status_code == 403
+    env.client.post(f"/meetings/{room}/end", headers=teacher)
+    ended = env.client.get("/meetings/lookup", params={"code": code}, headers=stranger)
+    assert ended.status_code == 409 and ended.json()["data"]["code"] == "MEETING_NOT_ACTIVE"
+
+
+def test_every_oversize_frame_is_413_frame_too_large(env, room, frame_data):
+    path = f"/meetings/{room}/emotions/infer"
+    student = env.headers["student"]
+    # decoded size above max_frame_bytes, JSON body still under the HTTP limit
+    for size in (720_000, 1_000_000, 1_040_000):
+        env.app.state.frame_limiter.entries.clear()
+        big = {**frame_data, "frame_base64": "A" * size}
+        response = env.client.post(path, json=big, headers=student)
+        assert response.status_code == 413, (size, response.status_code, response.text[:80])
+        assert response.json()["data"]["code"] == "FRAME_TOO_LARGE", size
+    # bodies above the HTTP limit are drained and answered the same way
+    env.app.state.frame_limiter.entries.clear()
+    huge = {**frame_data, "frame_base64": "A" * 3_000_000}
+    response = env.client.post(path, json=huge, headers=student)
+    assert response.status_code == 413 and response.json()["data"]["code"] == "FRAME_TOO_LARGE"

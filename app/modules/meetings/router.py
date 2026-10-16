@@ -149,6 +149,21 @@ def join_code(data: JoinCodeIn, request: Request, user: CurrentUser, db: DB):
     return ok(meeting_out(db, service(db, request).join_code(data.code, user)))
 
 
+@router.get("/lookup")
+def lookup(
+    request: Request,
+    user: CurrentUser,
+    db: DB,
+    code: str = Query(min_length=4, max_length=12, pattern=r"^[A-Za-z0-9]+$"),
+):
+    """Does this room code lead to a joinable meeting? No join, no side effects.
+
+    404 unknown code, 409 not ongoing, 403 teacher who does not own it. The FE calls this
+    before opening the lobby, so a wrong code never reaches the meeting screen.
+    """
+    return ok(service(db, request).lookup_code(code, user))
+
+
 @router.get("/{meeting_id}", response_model=Envelope[MeetingOut])
 def get(meeting_id: str, user: CurrentUser, db: DB):
     """Get meeting and membership states; reopening after a page exit rejoins (BE A)."""
@@ -228,6 +243,7 @@ async def recording_file(
     meeting = await run_in_threadpool(meetings.repo.get, meeting_id)
     if meeting is None or not await run_in_threadpool(meetings.can_record, meeting, user):
         raise not_found()
+    meetings.require_recording_mode(meeting)
     if file is None or not file.filename:
         raise AppError(422, "VALIDATION_ERROR", "Thiếu file ghi (field `file`).")
     content = await read_upload(file, state.settings.cloudinary_max_upload_bytes)

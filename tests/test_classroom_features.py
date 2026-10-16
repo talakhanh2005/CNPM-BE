@@ -6,13 +6,14 @@ from zipfile import ZipFile
 
 import httpx
 import pytest
+from fakes import FakeAIClient
 from fastapi import WebSocketDisconnect
 from pydantic import ValidationError
 
 from app.core.config import Settings
 from app.core.db import now
 from app.core.errors import AppError
-from app.integrations.ai import HttpAIClient, MockAIClient
+from app.integrations.ai import HttpAIClient
 from app.integrations.ai_schema import EMOTIONS, FrameResult
 from app.modules.analysis.service import process_one
 from app.modules.emotions.service import EmotionService
@@ -106,8 +107,9 @@ def test_two_students_signal_and_send_frames(env, room, frame_data):
     assert [item["student_id"] for item in logs] == ["other"]
     report = env.client.get(
         f"/meetings/{room}/report?student_id=student", headers=env.headers["teacher"]
-    ).json()["data"]
-    assert report["sample_count"] == 0
+    )
+    # A realtime meeting has no Report (README 1.2); its logs are read through emotion-logs.
+    assert report.status_code == 409 and report.json()["data"]["code"] == "INVALID_MEETING_MODE"
 
 
 def test_frame_permissions_and_metadata(env, room, frame_data):
@@ -165,10 +167,9 @@ def test_ai_failure_saved_and_report_handles_no_face(env, room, frame_data):
     data = response.json()["data"]
     assert data["emotion"] == "fail_detection" and data["failure_reason"] == "ai_error"
     assert not data["face_detected"] and set(data["probabilities"].values()) == {0}
-    report = env.client.get(f"/meetings/{room}/report", headers=env.headers["teacher"])
-    assert report.status_code == 200, report.text
-    assert report.json()["data"]["sample_count"] == 0
-    assert report.json()["data"]["timeline_total"] == 1
+    logs = env.client.get(f"/meetings/{room}/emotion-logs", headers=env.headers["teacher"])
+    assert logs.status_code == 200, logs.text
+    assert [item["failure_reason"] for item in logs.json()["data"]["items"]] == ["ai_error"]
 
 
 def test_websocket_frames_reconnect_and_teacher_rejection(env, room, frame_data):
@@ -299,7 +300,6 @@ async def test_http_ai_frame_contract():
         return httpx.Response(200, json=result("frame-42", timestamp).model_dump(mode="json"))
 
     settings = Settings(_env_file=None, jwt_secret="test-secret" * 4)
-    assert settings.ai_mode == "http"
     client = HttpAIClient(settings, httpx.MockTransport(handler))
     assert (
         await client.analyze_frame(b"image", "image/jpeg", "frame-42", timestamp)
@@ -316,7 +316,7 @@ def test_probability_contract():
 
 
 def test_slow_ai_does_not_block_signaling(env, room, frame_data):
-    class SlowAI(MockAIClient):
+    class SlowAI(FakeAIClient):
         async def analyze_frame(self, *args):
             await asyncio.sleep(0.3)
             return await super().analyze_frame(*args)
@@ -340,7 +340,7 @@ def test_end_during_ai_prevents_save(env, room, frame_data):
 
     started = Event()
 
-    class SlowAI(MockAIClient):
+    class SlowAI(FakeAIClient):
         async def analyze_frame(self, *args):
             started.set()
             await asyncio.sleep(0.3)
@@ -414,7 +414,7 @@ def test_no_face_is_logged_and_recovery_is_state_change(env, room, frame_data):
     response = env.client.post(path, json=frame_data, headers=env.headers["student"])
     assert response.json()["data"]["failure_reason"] == "no_face"
     env.app.state.frame_limiter.entries.clear()
-    env.app.state.ai = MockAIClient()
+    env.app.state.ai = FakeAIClient()
     response = env.client.post(
         path, json={**frame_data, "frame_id": "back"}, headers=env.headers["student"]
     )

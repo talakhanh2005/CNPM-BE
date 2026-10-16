@@ -1,11 +1,9 @@
-import hashlib
-import random
 from typing import Protocol
 
 import httpx
 
 from app.core.request_id import current_request_id
-from app.integrations.ai_schema import EMOTIONS, BatchResult, FrameResult
+from app.integrations.ai_schema import BatchResult, FrameResult
 
 
 class AIClient(Protocol):
@@ -15,47 +13,6 @@ class AIClient(Protocol):
     async def analyze_frame(
         self, frame: bytes, content_type: str, frame_id: str, timestamp
     ) -> FrameResult: ...
-
-
-class MockAIClient:
-    """Synthetic seeded-random output. Never represents actual emotion inference."""
-
-    async def analyze_video(self, recording_id, url, duration, idempotency_key):
-        rng = random.Random(recording_id)
-        timeline, counts = [], {emotion: 0 for emotion in EMOTIONS}
-        for i in range(20):
-            emotion = rng.choice(EMOTIONS)
-            counts[emotion] += 1
-            timeline.append(
-                {
-                    "timestamp": duration * i / 20,
-                    "emotion": emotion,
-                    "confidence": 0.8,
-                    "mock": True,
-                }
-            )
-        return BatchResult(
-            sample_counts=counts,
-            timeline=timeline,
-            summary="MOCK: synthetic data for integration testing.",
-            mock=True,
-            model_version="mock",
-        )
-
-    async def analyze_frame(self, frame, content_type, frame_id, timestamp):
-        rng = random.Random(hashlib.sha256(frame).digest())
-        emotion = rng.choice(EMOTIONS)
-        return FrameResult(
-            frame_id=frame_id,
-            timestamp=timestamp,
-            emotion=emotion,
-            confidence=0.8,
-            face_detected=True,
-            face_id="mock-face",
-            probabilities={e: 0.8 if e == emotion else 0.2 / 6 for e in EMOTIONS},
-            mock=True,
-            model_version="mock",
-        )
 
 
 class HttpAIClient:
@@ -108,4 +65,7 @@ class HttpAIClient:
 
 
 def build_ai(settings):
-    return MockAIClient() if settings.ai_mode == "mock" else HttpAIClient(settings)
+    """The real AI service over HTTP; refuses to start without its API key."""
+    if not settings.ai_api_key:
+        raise RuntimeError("AI_API_KEY is required (same value as the AI service AI_API_KEY)")
+    return HttpAIClient(settings)

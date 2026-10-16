@@ -1,4 +1,4 @@
-"""Import all tables for Alembic; importing app does not create or mutate a database."""
+"""Import every document model; importing app does not connect to or mutate a database."""
 
 from app.modules.analysis.model import AnalysisJob, AnalysisResult
 from app.modules.auth.model import RefreshSession, User

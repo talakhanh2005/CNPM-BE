@@ -1,6 +1,6 @@
 # Face Emotion Backend — MongoDB
 
-Backend FastAPI BE-01 -> BE-07, chạy trực tiếp bằng Python và **MongoDB** (hoặc SQL Server qua Alembic), phiên bản 2.0.0.
+Backend FastAPI BE-01 -> BE-07, chạy trực tiếp bằng Python, dữ liệu trong **MongoDB** và file/video trên **Cloudinary**, phiên bản 2.0.0.
 
 REST API, 1 WebSocket endpoint và các collection MongoDB cho auth, meeting, recording, analysis, emotion samples và tài liệu học tập. ConnectionManager cần một API process. Phòng học gồm một giáo viên và nhiều học viên (tối đa `MAX_ROOM_CONNECTIONS`, mặc định 30 kết nối).
 
@@ -44,7 +44,7 @@ Terminal thứ hai, cùng thư mục project:
 .\.venv\Scripts\python.exe -m app.worker
 ```
 
-Worker cần chạy để job phân tích chuyển từ pending sang processing/completed. Auth, meeting, signaling và report rỗng có thể test trước khi cấu hình Cloudinary. Test tự động dùng mock AI/storage nên không cần credential bên ngoài.
+Worker cần chạy để job phân tích chuyển từ pending sang processing/completed. Auth, meeting, signaling và report rỗng có thể test trước khi cấu hình Cloudinary. Test tự động dùng bản giả trong `tests/` nên không cần credential bên ngoài.
 
 ## Test từng task
 
@@ -61,7 +61,7 @@ Worker cần chạy để job phân tích chuyển từ pending sang processing/
 | Tài liệu | `pytest tests/test_classroom_features.py -k "material or pptx" -v` |
 | SQL migration | `pytest tests/test_migration.py -v` |
 
-Ứng dụng runtime dùng MongoDB qua `MONGO_URI`. Một số test và tài liệu legacy cho SQL Server vẫn còn trong repo để tham chiếu lịch sử, nhưng không còn là đường chạy mặc định của API/worker.
+Ứng dụng (API và worker) chỉ dùng MongoDB qua `MONGO_URI`; SQL Server, SQLAlchemy và Alembic đã được gỡ bỏ.
 
 **Hướng dẫn chi tiết chạy và test thủ công từng task: `docs/RUN-AND-TEST.md`.**
 
@@ -81,18 +81,17 @@ Mỗi package tách router/service/repository/model/schema. Signaling lưu socke
 
 - `docs/API.md`: endpoint, quyền, request/response mẫu và WebSocket protocol.
 - `docs/ARCHITECTURE.md`: dependency và luồng nghiệp vụ.
-- `docs/AI-CONTRACT.md`: hợp đồng batch/frame và mock AI.
+- `docs/AI-CONTRACT.md`: hợp đồng batch/frame với AI.
 - `docs/openapi.json`: REST schema import được vào công cụ API.
-- `docs/schema.sqlserver.sql`: tài liệu DDL legacy của bản SQL Server trước đây.
 - `docs/VERIFICATION.md`: kết quả kiểm chứng và những kết nối chưa được chạy thật.
 
 ## Những điểm cần cấu hình khi tích hợp
 
-Teacher đăng ký cần email trong `TEACHER_EMAIL_WHITELIST` hoặc `TEACHER_REGISTRATION_KEY`; có thể bật `ALLOW_TEACHER_REGISTRATION=true` chỉ để demo/test local. Đặt `ADMIN_EMAIL`/`ADMIN_PASSWORD` để tạo tài khoản admin lúc khởi động. Video và tài liệu upload yêu cầu credential Cloudinary. Mặc định `AI_MODE=http`, cấu hình `AI_BASE_URL`/`AI_API_KEY` theo [AI contract](docs/AI-CONTRACT.md). Chỉ đặt rõ `AI_MODE=mock` khi cần dữ liệu giả để test.
+Teacher đăng ký cần email trong `TEACHER_EMAIL_WHITELIST` hoặc `TEACHER_REGISTRATION_KEY`; có thể bật `ALLOW_TEACHER_REGISTRATION=true` chỉ để demo/test local. Đặt `ADMIN_EMAIL`/`ADMIN_PASSWORD` để tạo tài khoản admin lúc khởi động. Video và tài liệu upload yêu cầu credential Cloudinary. Cấu hình `AI_BASE_URL`/`AI_API_KEY` theo [AI contract](docs/AI-CONTRACT.md); hướng dẫn chạy với dữ liệu thật ở [REAL-DATA.md](docs/REAL-DATA.md).
 
 Upload là raw body với buffer RAM có giới hạn, mặc định 64 MiB và 2 upload đồng thời; không ghi file video local. File dài hơn cần chia thành video/segment hoàn chỉnh trước khi upload. Worker dùng collection `analysis_jobs` và lease token để khôi phục job sau restart. Báo cáo chọn batch hoặc realtime để tránh đếm đôi cùng dữ liệu.
 
-Chưa có credential Cloudinary/AI thật trong repo; local có thể chạy với mock AI/storage trong test.
+Credential thật chỉ nằm trong `.env` (không commit). Test tự động dùng bản giả trong `tests/`, không gọi dịch vụ ngoài.
 
 ## Tính năng bổ sung
 
@@ -102,6 +101,6 @@ Chưa có credential Cloudinary/AI thật trong repo; local có thể chạy v�
 - Upload tài liệu qua `/meetings/{id}/materials?filename=...`; xem danh sách và tải qua URL ký 5 phút.
 - Socket mới thay socket cũ cùng user. Refresh không tự leave. `ICE_SERVERS` được FE lấy qua `/meetings/{id}/ice-config`; cần FE và hạ tầng xác nhận TURN hoạt động.
 
-MongoDB tự bổ sung collection/index khi khởi động; meeting cũ mặc định realtime. Nếu dùng SQL Server, chạy `python -m alembic upgrade head` trước khi chạy API/worker. Frame request cũ cần bổ sung `frame_id` và `timestamp`; AI response cũ cần nâng cấp theo contract mới. Đổi cấu hình `FRAME_INTERVAL_SECONDS=1` cũ thành `0.3333333333333333`. `MAX_ROOM_CONNECTIONS` giờ nhận 2-100 (mặc định 30); đặt `2` nếu muốn giữ phòng 1 giáo viên + 1 học viên như bản 1.1.0.
+MongoDB tự bổ sung collection/index khi khởi động; meeting cũ mặc định realtime. Frame request cũ cần bổ sung `frame_id` và `timestamp`; AI response cũ cần nâng cấp theo contract mới. Đổi cấu hình `FRAME_INTERVAL_SECONDS=1` cũ thành `0.3333333333333333`. `MAX_ROOM_CONNECTIONS` giờ nhận 2-100 (mặc định 30); đặt `2` nếu muốn giữ phòng 1 giáo viên + 1 học viên như bản 1.1.0.
 
-Cài dependency kiểm thử bằng `python -m pip install -e ".[test]"`. Các test trong `tests/test_classroom_features.py` và `tests/test_merged_be_a.py` (chức năng gộp từ BE A) chạy cả SQLite và MongoDB giả lập; `tests/test_migration.py` kiểm tra migration lên/xuống. Xem [API](docs/API.md) để tích hợp FE.
+Cài dependency kiểm thử bằng `python -m pip install -e ".[test]"`. Các test trong `tests/test_classroom_features.py` và `tests/test_merged_be_a.py` (chức năng gộp từ BE A) chạy trên MongoDB giả lập (mongomock). Xem [API](docs/API.md) để tích hợp FE.

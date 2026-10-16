@@ -3470,43 +3470,7 @@
         "requestBody": {
           "required": true,
           "content": {
-            "text/plain": {
-              "schema": {
-                "type": "string",
-                "format": "binary"
-              }
-            },
             "image/png": {
-              "schema": {
-                "type": "string",
-                "format": "binary"
-              }
-            },
-            "application/pdf": {
-              "schema": {
-                "type": "string",
-                "format": "binary"
-              }
-            },
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
-              "schema": {
-                "type": "string",
-                "format": "binary"
-              }
-            },
-            "application/msword": {
-              "schema": {
-                "type": "string",
-                "format": "binary"
-              }
-            },
-            "image/jpeg": {
-              "schema": {
-                "type": "string",
-                "format": "binary"
-              }
-            },
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
               "schema": {
                 "type": "string",
                 "format": "binary"
@@ -3518,13 +3482,49 @@
                 "format": "binary"
               }
             },
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+            "image/jpeg": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/msword": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
               "schema": {
                 "type": "string",
                 "format": "binary"
               }
             },
             "application/vnd.ms-excel": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/pdf": {
               "schema": {
                 "type": "string",
                 "format": "binary"
@@ -11094,7 +11094,7 @@
           },
           "frame_base64": {
             "type": "string",
-            "maxLength": 700000,
+            "maxLength": 1000000,
             "minLength": 1,
             "title": "Frame Base64",
             "description": "Raw base64 without data: prefix; JPEG/PNG only"
@@ -12594,6 +12594,17 @@
               }
             ],
             "title": "Folder"
+          },
+          "meeting_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meeting Id"
           },
           "resource_type": {
             "anyOf": [

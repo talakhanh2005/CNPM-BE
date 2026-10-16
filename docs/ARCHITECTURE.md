@@ -6,13 +6,13 @@
 face-emotion-backend/
   app/
     main.py                  # App factory, DI adapters, handlers, routes
-    worker.py                # Worker SQL bền vững, chạy process riêng
-    models.py                # Registry model cho Alembic
+    worker.py                # Worker bền vững, chạy process riêng
+    models.py                # Registry các document model
     core/
-      config.py db.py dependencies.py errors.py limits.py schemas.py security.py
+      config.py db.py document.py mongo.py dependencies.py errors.py limits.py schemas.py security.py
     integrations/
       storage.py             # VideoStorage protocol + CloudinaryStorage
-      ai.py                  # AIClient protocol + MockAIClient + HttpAIClient
+      ai.py                  # AIClient protocol + HttpAIClient
       ai_schema.py           # Contract AI chung
     modules/
       auth/
@@ -22,14 +22,13 @@ face-emotion-backend/
       analysis/
       emotions/
       reports/               # Read model trên kết quả batch/realtime
-  alembic/versions/           # Migration độc lập với model hiện tại
   tests/                     # HTTP, WebSocket, repository race, adapter contract
   docs/
-  scripts/create_database.sql scripts/check_sqlserver.py
+  scripts/entrypoint.sh
   pyproject.toml requirements.lock .env.example
 ```
 
-Trong mỗi module: router nhận/validate request; service kiểm tra nghiệp vụ và transaction; repository truy vấn SQL hoặc connection index; model mô tả lưu trữ. Schema Pydantic nằm cạnh model. Service giữa các module dùng contract của module phụ thuộc để áp dụng cùng chính sách quyền.
+Trong mỗi module: router nhận/validate request; service kiểm tra nghiệp vụ và transaction; repository truy vấn MongoDB hoặc connection index; model là dataclass mô tả document. Schema Pydantic nằm cạnh model. Service giữa các module dùng contract của module phụ thuộc để áp dụng cùng chính sách quyền.
 
 ## Dependency đã dùng để triển khai
 
@@ -37,14 +36,14 @@ Trong mỗi module: router nhận/validate request; service kiểm tra nghiệp 
 2. BE-02 dùng BE-01, cung cấp `MeetingService.require(..., owner, active, lock)`.
 3. BE-03 và BE-04 dùng interface meeting đã hoàn thiện.
 4. BE-05 dùng RecordingService, VideoStorage và AIClient contract.
-5. BE-06 dùng MeetingService, ConnectionManager và AIClient. FE-04/AI-06 được thay bằng test client/mock trong kiểm thử.
+5. BE-06 dùng MeetingService, ConnectionManager và AIClient. FE-04/AI-06 được thay bằng test client giả trong kiểm thử.
 6. BE-07 đọc AnalysisResult/EmotionSample theo contract chung; AI-07 thực cần xác nhận `sample_counts` và semantics timeline.
 
-## Các bảng SQL
+## Các collection MongoDB
 
-ID là UUID do ứng dụng sinh, lưu `VARCHAR(36)`. Thời gian luôn UTC; SQL Server dùng DATETIMEOFFSET, SQLite được adapter chuẩn hóa UTC khi đọc. Email chuẩn hóa chữ thường và có unique constraint. Không có SQL collection; các thực thể dùng bảng quan hệ.
+Mỗi thực thể là một collection; `id` là UUID do ứng dụng sinh (field `id`, không dùng `_id`). Thời gian luôn UTC (client `tz_aware`). Email chuẩn hóa chữ thường và có unique index. Index do `MongoDatabase.ensure_indexes` tạo khi khởi động; không có migration. Cột "Collection" bên dưới là tên collection; CHECK/FK cũ được thay bằng validate ở tầng service.
 
-| Bảng | Trường | Constraint / index |
+| Collection | Trường | Constraint / index |
 |---|---|---|
 | users | id, email, password_hash, full_name, role, created_at | PK id; UNIQUE email; CHECK role teacher/student |
 | refresh_sessions | jti, user_id, expires_at, revoked_at | PK jti; FK user; index user_id; không lưu raw token |
@@ -90,14 +89,14 @@ erDiagram
 ## Transaction và concurrent requests
 
 - Register dựa trên UNIQUE email và rollback khi trùng, kể cả concurrent registration.
-- Refresh token được consume bằng conditional UPDATE: `revoked_at IS NULL` và chưa hết hạn. Chỉ một request thắng; tạo refresh mới trong cùng transaction.
-- Meeting lifecycle dùng WITH (UPDLOCK, ROWLOCK) trên SQL Server; student join lại cập nhật record cũ. SQLite phục vụ dev/test, không có đầy đủ row-lock semantics của SQL Server.
+- Refresh token được consume bằng `update_one` có điều kiện: `revoked_at IS NULL` và chưa hết hạn. Chỉ một request thắng; tạo refresh mới trong cùng transaction.
+- Meeting lifecycle được đồng bộ bằng lock theo meeting trong API process (nên chạy một process); student join lại cập nhật record cũ. Adapter MongoDB không có transaction nhiều document.
 - Analyze dùng conditional UPDATE trên recording để chỉ enqueue từ `uploaded/failed`. Một recording có một job. Request lặp trong pending/processing/completed trả trạng thái hiện có.
-- Worker claim bằng conditional UPDATE trên job với OUTPUT INSERTED, khóa recording trước job như enqueue/finish để giữ cùng thứ tự khóa, cấp lease_token mới, cập nhật recording processing rồi commit trước khi gọi AI.
-- Kết quả + trạng thái completed được commit cùng transaction. Worker hết lease không thể overwrite do token không còn khớp.
+- Worker claim bằng `find_one_and_update` nguyên tử trên job (pending hoặc lease hết hạn), cấp lease_token mới và đặt recording processing trước khi gọi AI.
+- Job chuyển completed bằng cập nhật có điều kiện lease_token rồi ghi kết quả. Worker hết lease không thể overwrite do token không còn khớp.
 - Worker crash khi processing: job đủ điều kiện nhận lại sau lease. AI có thể nhận request nhiều lần; AI thật cần hỗ trợ `Idempotency-Key`.
-- Upload remote và SQL không có distributed transaction. Nếu SQL save thất bại hoặc quá duration, backend gọi delete Cloudinary. Crash giữa upload và SQL hoặc cleanup lỗi có thể để lại orphan asset; cần đối soát theo public_id khi vận hành.
-- API sync dùng threadpool FastAPI; đường WS/frame tạo session ngắn trong worker thread. Không chia sẻ Session giữa request hay giữa các job.
+- Upload Cloudinary và MongoDB không có distributed transaction. Nếu lưu DB thất bại hoặc quá duration, backend gọi delete Cloudinary. Crash giữa upload và lưu DB hoặc cleanup lỗi có thể để lại orphan asset; cần đối soát theo public_id khi vận hành.
+- API sync dùng threadpool FastAPI; đường WS/frame tạo session ngắn trong worker thread. Không chia sẻ MongoSession giữa request hay giữa các job.
 
 ## Report semantics
 
@@ -121,12 +120,12 @@ Tài liệu lưu metadata trong collection/table materials; file nằm trên Clo
 
 ## Mở rộng
 
-Với lớp đông, bổ sung SFU ở tầng media; signaling hiện chỉ chuyển metadata. Để nhiều API process cần distributed presence/pub-sub và shared limiter. Với báo cáo rất lớn, chuyển timeline JSON sang bảng point riêng để phân trang ngay ở SQL; hiện batch load payload kết quả để tính tổng hợp, tối đa 20.000 điểm mỗi response AI.
+Với lớp đông, bổ sung SFU ở tầng media; signaling hiện chỉ chuyển metadata. Để nhiều API process cần distributed presence/pub-sub và shared limiter. Với báo cáo rất lớn, chuyển timeline JSON sang bảng point riêng để phân trang ngay ở MongoDB; hiện batch load payload kết quả để tính tổng hợp, tối đa 20.000 điểm mỗi response AI.
 
-Tham khảo API nền tảng: [FastAPI WebSockets](https://fastapi.tiangolo.com/advanced/websockets/) và [SQLAlchemy Session Basics](https://docs.sqlalchemy.org/en/20/orm/session_basics.html). Cấu hình session và connection manager trong project thể hiện các lựa chọn cụ thể của bản triển khai này.
+Tham khảo API nền tảng: [FastAPI WebSockets](https://fastapi.tiangolo.com/advanced/websockets/). Cấu hình session và connection manager trong project thể hiện các lựa chọn cụ thể của bản triển khai này.
 
-## SQL Server adapter
+## MongoDB adapter
 
-API, worker và Alembic dùng cùng Settings.sqlalchemy_url. Windows Authentication tạo Trusted_Connection=yes; SQL Authentication tạo UID/PWD có escape ODBC. pyodbc pooling tắt để SQLAlchemy quản lý connection pool. Unicode full_name dùng NVARCHAR(150), error_message dùng NVARCHAR(256), JSON payload dùng NVARCHAR(max). Initial migration giữ nguyên; migration 20260915_unicode đổi các trường Unicode trên SQL Server.
+API và worker dùng chung `Settings.mongo_uri`. `app/core/document.py` định nghĩa dataclass `Document`; `app/core/mongo.py` có `MongoSession` (unit of work): `get` nạp document và theo dõi thay đổi, `commit/flush` ghi lại bằng `$set` các trường đổi (upsert cho document mới). Các thao tác cần nguyên tử (claim job, consume refresh token, enqueue) dùng `update_one`/`find_one_and_update` có điều kiện. Lỗi trùng unique index (`DuplicateKeyError`) được map sang 409.
 
-Các conditional UPDATE dùng kết quả OUTPUT INSERTED, không dựa vào pyodbc rowcount. SELECT FOR UPDATE không phải cơ chế khóa SQL Server; repository dùng hint UPDLOCK, ROWLOCK trong transaction. Tham khảo [SQLAlchemy SQL Server dialect](https://docs.sqlalchemy.org/en/20/dialects/mssql.html). Không thêm trigger vào các bảng CAS nếu chưa điều chỉnh OUTPUT theo cơ chế trigger của SQL Server.
+Mọi file lớn (video ghi hình, tài liệu, media) lưu trên Cloudinary; MongoDB chỉ giữ metadata (`public_id`, URL, kích thước, trạng thái). Frame realtime chỉ nằm trong RAM, không ghi đĩa hay DB.

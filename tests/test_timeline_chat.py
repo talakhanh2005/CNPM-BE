@@ -4,13 +4,14 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from fakes import FakeAIClient
 from pydantic import ValidationError
 
-from app.integrations.ai import MockAIClient
 from app.integrations.ai_schema import BatchResult, Segment, TimelinePoint
 from app.modules.analysis.service import process_one
-from app.modules.chat.llm import ClaudeIntentParser
+from app.modules.chat.llm import GeminiIntentParser
 from app.modules.chat.parser import (
     FIND_EMOTION,
     GET_EMOTION_BY_TIME,
@@ -33,7 +34,7 @@ SEGMENTS = [
 ]
 
 
-class SegmentAI(MockAIClient):
+class SegmentAI(FakeAIClient):
     """AI build that already returns smoothed segments (contract v1 §6.2)."""
 
     async def analyze_video(self, recording_id, url, duration, idempotency_key):
@@ -119,6 +120,27 @@ def test_majority_label_when_several_faces_share_a_timestamp():
     timeline = points((0.0, "sad", 0.9), (0.0, "happy", 0.6), (0.0, "happy", 0.7))
     segments, _ = build_segments(result_with(timeline), 1)
     assert segments[0]["emotion"] == "happy" and segments[0]["avg_confidence"] == 0.65
+
+
+def test_low_confidence_becomes_unknown_never_neutral():
+    timeline = points(
+        *[(float(t), "neutral", 0.9) for t in range(3)],
+        *[(float(t), "neutral", 0.2) for t in range(3, 6)],
+        *[(float(t), "happy", 0.39) for t in range(6, 8)],
+        (8.0, "sad", 0.4),
+    )
+    segments, _ = build_segments(result_with(timeline), 9)
+    assert [(s["start_seconds"], s["end_seconds"], s["emotion"]) for s in segments] == [
+        (0, 3, "neutral"),
+        (3, 8, "unknown"),  # 0.2 and 0.39 merge; the label is not kept
+        (8, 9, "sad"),  # exactly the threshold is still a valid prediction
+    ]
+    stats = summarize(segments, 0, 9)
+    assert stats["unknown_seconds"] == 5 and stats["analyzed_seconds"] == 4
+    assert stats["emotions"]["neutral"]["seconds"] == 3
+    assert stats["coverage"] == round(4 / 9, 4)
+    strict, _ = build_segments(result_with(timeline), 9, low_confidence=0.0)
+    assert "unknown" not in {s["emotion"] for s in strict}
 
 
 def test_ai_segments_are_validated_merged_and_clamped():
@@ -220,6 +242,26 @@ def test_t11_ingestion_is_idempotent_and_lazy(env):
     assert data["segments"][-1]["end_seconds"] == 30
 
 
+def test_t11_repeated_analysis_requests_keep_one_job_and_one_segment_set(env):
+    room, recording_id = recorded_meeting(env)
+    teacher = env.headers["teacher"]
+    status = f"/recordings/{recording_id}/status"
+    job_id = env.client.get(status, headers=teacher).json()["data"]["job_id"]
+    with env.factory() as db:
+        before = TimelineRepository(db).segments(recording_id)
+    for _ in range(2):  # a retry after completion must not queue or re-ingest anything
+        response = env.client.post(f"/recordings/{recording_id}/analyze", headers=teacher)
+        assert response.status_code in {200, 202, 409}, response.text
+    # Nothing is left to process, so a second worker pass does no work.
+    assert not asyncio.run(
+        process_one(env.factory, env.app.state.ai, env.app.state.storage, env.settings)
+    )
+    data = env.client.get(status, headers=teacher).json()["data"]
+    assert data["job_id"] == job_id and data["status"] == "completed"
+    with env.factory() as db:
+        assert TimelineRepository(db).segments(recording_id) == before
+
+
 # ------------------------------------------------------------------ chatbot
 
 
@@ -301,47 +343,60 @@ def test_chat_uses_llm_only_when_rules_fail(env):
     assert calls == ["Học sinh có hào hứng không?"]
 
 
-def test_claude_parser_validates_output():
-    def client(*replies):
-        replies = list(replies)
+def test_gemini_parser_validates_output():
+    sent = []
 
-        def create(**kwargs):
-            assert kwargs["model"] == "claude-opus-5-5"
-            assert kwargs["output_config"]["format"]["type"] == "json_schema"
-            return replies.pop(0)
-
-        return SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=create)))
-
-    def reply(payload, stop="end_turn"):
+    def gemini_reply(payload, finish="STOP", status=200):
         text = payload if isinstance(payload, str) else json.dumps(payload)
-        return SimpleNamespace(stop_reason=stop, content=[SimpleNamespace(type="text", text=text)])
+        body = {"candidates": [{"finishReason": finish, "content": {"parts": [{"text": text}]}}]}
+        return httpx.Response(status, json=body)
 
-    settings = SimpleNamespace(chat_llm_model="claude-opus-5-5")
     good = {"intent": "FIND_EMOTION", "start_seconds": -1, "end_seconds": -1, "emotion": "happy"}
-    parser = ClaudeIntentParser(
-        settings,
-        client(
-            reply(good),
-            reply(good, stop="refusal"),
-            reply("not json"),
-            reply({**good, "emotion": "none"}),
-            reply(
-                {
-                    "intent": "GET_EMOTION_BY_TIME",
-                    "start_seconds": 60,
-                    "end_seconds": 120,
-                    "emotion": "none",
-                }
-            ),
-        ),
+    ranged = {
+        "intent": "GET_EMOTION_BY_TIME",
+        "start_seconds": 60,
+        "end_seconds": 120,
+        "emotion": "none",
+    }
+    replies = [
+        gemini_reply(good),
+        gemini_reply(good, finish="SAFETY"),
+        gemini_reply("not json"),
+        gemini_reply({**good, "emotion": "none"}),
+        gemini_reply(ranged),
+        httpx.Response(200, json={"promptFeedback": {"blockReason": "SAFETY"}}),
+        httpx.Response(401, json={"error": {"message": "bad key"}}),
+        httpx.Response(503, json={}),  # transient overload: retried once...
+        gemini_reply(good),  # ...and the retry succeeds
+    ]
+
+    def handler(request):
+        sent.append(request)
+        return replies.pop(0)
+
+    settings = SimpleNamespace(
+        chat_llm_model="gemini-3.5-flash",
+        gemini_api_key=SimpleNamespace(get_secret_value=lambda: "test-key"),
+        chat_llm_timeout_seconds=5,
     )
+    parser = GeminiIntentParser(settings, httpx.Client(transport=httpx.MockTransport(handler)))
     first = parser.parse("q")
     assert (first.intent, first.emotion, first.start_seconds) == (FIND_EMOTION, "happy", None)
-    assert parser.parse("q") is None  # refusal
+    request = sent[0]
+    assert request.url.path.endswith("/models/gemini-3.5-flash:generateContent")
+    assert request.headers["x-goog-api-key"] == "test-key" and "test-key" not in str(request.url)
+    body = json.loads(request.content)
+    assert body["generationConfig"]["responseMimeType"] == "application/json"
+    assert body["contents"][0]["parts"][0]["text"] == "q"  # only the question is sent
+    assert parser.parse("q") is None  # stopped by a safety filter
     assert parser.parse("q") is None  # invalid JSON
     assert parser.parse("q") is None  # FIND_EMOTION without an emotion
-    ranged = parser.parse("q")
-    assert (ranged.start_seconds, ranged.end_seconds, ranged.emotion) == (60, 120, None)
+    parsed = parser.parse("q")
+    assert (parsed.start_seconds, parsed.end_seconds, parsed.emotion) == (60, 120, None)
+    assert parser.parse("q") is None  # prompt blocked
+    assert parser.parse("q") is None  # HTTP 401: no retry
+    assert parser.parse("q").emotion == "happy"  # 503 then success
+    assert not replies
 
 
 # ------------------------------------------------------------------ realtime + request id

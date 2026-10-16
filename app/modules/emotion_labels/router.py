@@ -6,7 +6,6 @@ Realtime classroom emotion (frames + AI) lives in app/modules/emotions.
 import logging
 
 from fastapi import APIRouter, File, Form, Query, Request, UploadFile
-from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
 from app.core.db import new_id, now
@@ -95,23 +94,14 @@ def list_emotions(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
 ):
-    if getattr(db, "is_mongo", False):
-        labels = [
-            model_from_doc(EmotionLabel, doc)
-            for doc in db.collection("emotion_labels")
-            .find({"user_id": user.id})
-            .sort([("created_at", -1), ("id", -1)])
-            .skip(offset)
-            .limit(limit)
-        ]
-    else:
-        labels = db.scalars(
-            select(EmotionLabel)
-            .where(EmotionLabel.user_id == user.id)
-            .order_by(EmotionLabel.created_at.desc(), EmotionLabel.id.desc())
-            .offset(offset)
-            .limit(limit)
-        ).all()
+    labels = [
+        model_from_doc(EmotionLabel, doc)
+        for doc in db.collection("emotion_labels")
+        .find({"user_id": user.id})
+        .sort([("created_at", -1), ("id", -1)])
+        .skip(offset)
+        .limit(limit)
+    ]
     return ok([label_out(label) for label in labels])
 
 
@@ -128,9 +118,5 @@ def delete_emotion(emotion_id: str, request: Request, user: CurrentUser, db: DB)
         request.app.state.storage.delete_media(
             label.media_public_id, label.media_resource_type or "image"
         )
-    if getattr(db, "is_mongo", False):
-        db.collection("emotion_labels").delete_one({"id": label.id})
-    else:
-        db.delete(label)
-        db.commit()
+    db.collection("emotion_labels").delete_one({"id": label.id})
     return ok({"id": emotion_id, "deleted": True}, "Emotion deleted")

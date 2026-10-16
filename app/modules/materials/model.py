@@ -1,29 +1,29 @@
+from dataclasses import dataclass
 from datetime import datetime
+from typing import ClassVar
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Unicode
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.core.db import Base, UTCDateTime, new_id, now
+from app.core.document import Document
 
 
-class Material(Base):
-    """Teaching material (BE B) and shared document (BE A) in one table."""
+@dataclass(kw_only=True, eq=False)
+class Material(Document):
+    """Teaching material (BE B) and shared document (BE A) in one collection."""
 
-    __tablename__ = "materials"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
-    uploaded_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
-    filename: Mapped[str] = mapped_column(Unicode(255))
-    content_type: Mapped[str] = mapped_column(String(128))
-    size_bytes: Mapped[int] = mapped_column(Integer)
-    public_id: Mapped[str] = mapped_column(String(256), unique=True)
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=now)
+    __collection__: ClassVar[str] = "materials"
+    id: str | None = None
+    meeting_id: str | None = None
+    uploaded_by: str | None = None
+    filename: str | None = None
+    content_type: str | None = None
+    size_bytes: int | None = None
+    public_id: str | None = None
+    created_at: datetime | None = None
     # Sharing fields merged from BE A documents.
-    format: Mapped[str | None] = mapped_column(String(16))
-    resource_type: Mapped[str | None] = mapped_column(String(16), default="raw")
-    tags: Mapped[list | None] = mapped_column(JSON, default=list)
-    shared_with: Mapped[list | None] = mapped_column(JSON, default=list)
-    shared_with_all: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
-    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
-    share_token: Mapped[str | None] = mapped_column(String(64), index=True)
-    share_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    format: str | None = None
+    resource_type: str | None = None
+    tags: list | None = None
+    shared_with: list | None = None
+    shared_with_all: bool | None = None
+    revoked_at: datetime | None = None
+    share_token: str | None = None
+    share_expires_at: datetime | None = None

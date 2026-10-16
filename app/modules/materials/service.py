@@ -4,8 +4,6 @@ from io import BytesIO
 from pathlib import PurePath
 from zipfile import BadZipFile, ZipFile
 
-from sqlalchemy import select
-
 from app.core.db import new_id, now
 from app.core.errors import AppError
 from app.core.mongo import model_from_doc
@@ -91,25 +89,17 @@ class MaterialService:
     # ------------------------------------------------------------------ queries
 
     def for_meeting(self, meeting_id):
-        if getattr(self.db, "is_mongo", False):
-            return [
-                model_from_doc(Material, doc)
-                for doc in self.db.collection("materials")
-                .find({"meeting_id": meeting_id})
-                .sort([("created_at", -1), ("id", -1)])
-            ]
-        return self.db.scalars(
-            select(Material)
-            .where(Material.meeting_id == meeting_id)
-            .order_by(Material.created_at.desc(), Material.id.desc())
-        ).all()
+        return [
+            model_from_doc(Material, doc)
+            for doc in self.db.collection("materials")
+            .find({"meeting_id": meeting_id})
+            .sort([("created_at", -1), ("id", -1)])
+        ]
 
     def by_token(self, token):
-        if getattr(self.db, "is_mongo", False):
-            return model_from_doc(
-                Material, self.db.collection("materials").find_one({"share_token": token})
-            )
-        return self.db.scalar(select(Material).where(Material.share_token == token))
+        return model_from_doc(
+            Material, self.db.collection("materials").find_one({"share_token": token})
+        )
 
     def count(self, meeting_id):
         return len(self.for_meeting(meeting_id))
@@ -329,11 +319,7 @@ class MaterialService:
         self.storage.delete_media(
             material.public_id, material.resource_type or "raw", "authenticated"
         )
-        if getattr(self.db, "is_mongo", False):
-            self.db.collection("materials").delete_one({"id": material.id})
-        else:
-            self.db.delete(material)
-            self.db.commit()
+        self.db.collection("materials").delete_one({"id": material.id})
 
     def account_ids(self, meeting, ids):
         if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids):

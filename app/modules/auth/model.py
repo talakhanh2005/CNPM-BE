@@ -1,27 +1,26 @@
+from dataclasses import dataclass
 from datetime import datetime
+from typing import ClassVar
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, Unicode
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.core.db import Base, UTCDateTime, new_id, now
+from app.core.document import Document
 
 
-class User(Base):
-    __tablename__ = "users"
-    __table_args__ = (
-        CheckConstraint("role IN ('teacher', 'student', 'admin')", name="ck_user_role"),
-    )
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    email: Mapped[str] = mapped_column(String(320), unique=True)
-    password_hash: Mapped[str] = mapped_column(String(128))
-    full_name: Mapped[str] = mapped_column(Unicode(150))
-    role: Mapped[str] = mapped_column(String(16))
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=now)
+@dataclass(kw_only=True, eq=False)
+class User(Document):
+    __collection__: ClassVar[str] = "users"
+    id: str | None = None
+    email: str | None = None
+    password_hash: str | None = None
+    full_name: str | None = None
+    # teacher | student | admin
+    role: str | None = None
+    created_at: datetime | None = None
 
 
-class RefreshSession(Base):
-    __tablename__ = "refresh_sessions"
-    jti: Mapped[str] = mapped_column(String(36), primary_key=True)
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
-    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+@dataclass(kw_only=True, eq=False)
+class RefreshSession(Document):
+    __collection__: ClassVar[str] = "refresh_sessions"
+    jti: str | None = None
+    user_id: str | None = None
+    expires_at: datetime | None = None
+    revoked_at: datetime | None = None

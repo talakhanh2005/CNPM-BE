@@ -1,11 +1,9 @@
 from pymongo.errors import DuplicateKeyError
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 
 from app.core.errors import AppError
 from app.core.mongo import model_from_doc
 from app.core.security import hash_password
-from app.modules.auth.model import RefreshSession, User
+from app.modules.auth.model import User
 from app.modules.auth.repository import AuthRepository
 
 
@@ -34,16 +32,14 @@ class UserService:
         return user
 
     def list(self, offset, limit):
-        if getattr(self.db, "is_mongo", False):
-            return [
-                model_from_doc(User, doc)
-                for doc in self.db.collection("users")
-                .find()
-                .sort([("email", 1)])
-                .skip(offset)
-                .limit(limit)
-            ]
-        return self.db.scalars(select(User).order_by(User.email).offset(offset).limit(limit)).all()
+        return [
+            model_from_doc(User, doc)
+            for doc in self.db.collection("users")
+            .find()
+            .sort([("email", 1)])
+            .skip(offset)
+            .limit(limit)
+        ]
 
     def update(self, user, data, actor=None):
         values = data.model_dump(exclude_unset=True)
@@ -69,7 +65,7 @@ class UserService:
             user.role = role
         try:
             self.db.commit()
-        except (IntegrityError, DuplicateKeyError) as exc:
+        except DuplicateKeyError as exc:
             self.db.rollback()
             raise AppError(409, "EMAIL_EXISTS", "Email already registered") from exc
         return user
@@ -78,18 +74,5 @@ class UserService:
         if user_id == actor.id:
             raise AppError(400, "SELF_DELETE", "Admins cannot delete themselves")
         user = self.require(user_id)
-        if getattr(self.db, "is_mongo", False):
-            self.db.collection("refresh_sessions").delete_many({"user_id": user.id})
-            self.db.collection("users").delete_one({"id": user.id})
-            return
-        try:
-            self.db.execute(
-                RefreshSession.__table__.delete().where(RefreshSession.user_id == user.id)
-            )
-            self.db.delete(user)
-            self.db.commit()
-        except IntegrityError as exc:
-            self.db.rollback()
-            raise AppError(
-                409, "USER_IN_USE", "User still owns meetings or data; remove those first"
-            ) from exc
+        self.db.collection("refresh_sessions").delete_many({"user_id": user.id})
+        self.db.collection("users").delete_one({"id": user.id})

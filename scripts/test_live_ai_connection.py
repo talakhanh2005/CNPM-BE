@@ -51,6 +51,8 @@ def main() -> None:
         "full_name": "Live Integration Teacher",
         "role": "teacher",
     }
+    if os.getenv("TEACHER_REGISTRATION_KEY"):
+        teacher["teacher_registration_key"] = os.environ["TEACHER_REGISTRATION_KEY"]
     student = {
         "email": f"live-student-{run_id}@gmail.com",
         "password": "LiveTestPassword123!",
@@ -129,7 +131,7 @@ def main() -> None:
     if result.get("frame_id") != frame["frame_id"]:
         fail(f"AI response frame_id mismatch: {result}")
     if result.get("mock") is True:
-        fail("Backend used MockAIClient; check AI_MODE=http")
+        fail("Response is flagged mock; check that AI_BASE_URL points at the real AI service")
     if result.get("emotion") not in {
         "happy",
         "neutral",

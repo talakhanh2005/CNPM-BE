@@ -4,12 +4,11 @@ from urllib.parse import urlparse
 
 from pymongo import ASCENDING, MongoClient
 
-from app.modules.analysis.model import AnalysisJob, AnalysisResult
-from app.modules.auth.model import RefreshSession, User
+from app.modules.analysis.model import AnalysisResult
+from app.modules.auth.model import RefreshSession
 from app.modules.emotions.model import EmotionSample
 from app.modules.materials.model import Material
 from app.modules.meetings.model import Meeting, Participant
-from app.modules.recordings.model import Recording
 
 
 def _database_name(uri: str) -> str:
@@ -18,48 +17,49 @@ def _database_name(uri: str) -> str:
     return name or "face_emotion"
 
 
+# Fields that identify one document of each model; everything else uses ``id``.
+KEYS = {
+    RefreshSession: ("jti",),
+    Participant: ("meeting_id", "user_id"),
+    AnalysisResult: ("recording_id",),
+}
+
+
+def key_fields(model):
+    return KEYS.get(model, ("id",))
+
+
 def model_from_doc(model, doc):
     if doc is None:
         return None
     data = {key: value for key, value in doc.items() if key != "_id"}
+    # Documents written before these fields existed get the same defaults as new ones.
     if model is EmotionSample:
         data.setdefault("face_detected", True)
         data.setdefault("logged", True)
     if model is Material:
-        # Documents created before the BE A merge were visible to every member.
         data.setdefault("shared_with_all", True)
     if model is Meeting:
         data.setdefault("mode", "realtime")
-        participants = data.pop("participants", [])
-        instance = model(**data)
-        instance.participants = [model_from_doc(Participant, p) for p in participants]
-        return instance
-    return model(**data)
+        data.pop("participants", None)
+    return model.from_doc(data)
 
 
 def doc_from_model(instance):
-    return {
-        column.name: getattr(instance, column.name)
-        for column in instance.__table__.columns
-        if hasattr(instance, column.name)
-    }
+    return instance.to_doc()
 
 
 def collection_name(model):
-    return model.__tablename__
+    return model.__collection__
 
 
 def key_filter(instance):
-    if isinstance(instance, RefreshSession):
-        return {"jti": instance.jti}
-    if isinstance(instance, Participant):
-        return {"meeting_id": instance.meeting_id, "user_id": instance.user_id}
-    if isinstance(instance, AnalysisResult):
-        return {"recording_id": instance.recording_id}
-    return {"id": instance.id}
+    return {name: getattr(instance, name) for name in key_fields(type(instance))}
 
 
 class MongoSession:
+    """Unit of work over pymongo: tracked documents are written back as `$set` on commit."""
+
     def __init__(self, database):
         self.database = database
         self._tracked = []
@@ -74,55 +74,22 @@ class MongoSession:
     def collection(self, name):
         return self.database[name]
 
-    @property
-    def is_mongo(self):
-        return True
-
     def get(self, model, key):
-        if model is User:
-            instance = model_from_doc(User, self.collection("users").find_one({"id": key}))
-        if model is RefreshSession:
-            instance = model_from_doc(
-                RefreshSession, self.collection("refresh_sessions").find_one({"jti": key})
-            )
+        names = key_fields(model)
+        values = key if isinstance(key, tuple) else (key,)
+        doc = self.collection(collection_name(model)).find_one(dict(zip(names, values)))
+        instance = model_from_doc(model, doc)
+        if instance is None:
+            return None
         if model is Meeting:
-            instance = model_from_doc(Meeting, self.collection("meetings").find_one({"id": key}))
-            if instance is not None:
-                participants = list(self.collection("participants").find({"meeting_id": key}))
-                instance.participants = [model_from_doc(Participant, item) for item in participants]
-        if model is Participant:
-            meeting_id, user_id = key
-            instance = model_from_doc(
-                Participant,
-                self.collection("participants").find_one(
-                    {"meeting_id": meeting_id, "user_id": user_id}
-                ),
-            )
-        if model is Recording:
-            instance = model_from_doc(
-                Recording, self.collection("recordings").find_one({"id": key})
-            )
-        if model is AnalysisJob:
-            instance = model_from_doc(
-                AnalysisJob, self.collection("analysis_jobs").find_one({"id": key})
-            )
-        if model is AnalysisResult:
-            instance = model_from_doc(
-                AnalysisResult,
-                self.collection("analysis_results").find_one({"recording_id": key}),
-            )
-        if model is EmotionSample:
-            instance = model_from_doc(
-                EmotionSample, self.collection("emotion_samples").find_one({"id": key})
-            )
-        if "instance" not in locals():
-            instance = model_from_doc(
-                model, self.collection(model.__tablename__).find_one({"id": key})
-            )
-        if instance is not None:
-            self._track(instance)
-            self._snapshots[id(instance)] = deepcopy(doc_from_model(instance))
+            instance.participants = self.participants_of(key)
+        self._track(instance)
+        self._snapshots[id(instance)] = deepcopy(doc_from_model(instance))
         return instance
+
+    def participants_of(self, meeting_id):
+        docs = self.collection("participants").find({"meeting_id": meeting_id})
+        return [model_from_doc(Participant, item) for item in docs]
 
     def _track(self, instance):
         if all(existing is not instance for existing in self._tracked):
@@ -153,20 +120,14 @@ class MongoSession:
 
     def commit(self):
         self.flush()
-        return None
 
     def rollback(self):
         self._tracked.clear()
         self._snapshots.clear()
-        return None
 
     def refresh(self, instance):
-        fresh = self.get(
-            type(instance),
-            tuple(key_filter(instance).values())
-            if isinstance(instance, Participant)
-            else next(iter(key_filter(instance).values())),
-        )
+        values = tuple(key_filter(instance).values())
+        fresh = self.get(type(instance), values if len(values) > 1 else values[0])
         if fresh:
             for key, value in doc_from_model(fresh).items():
                 setattr(instance, key, value)

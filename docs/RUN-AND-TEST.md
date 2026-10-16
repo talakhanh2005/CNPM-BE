@@ -1,12 +1,9 @@
-# Hướng dẫn chạy và test từng task — Windows + SQL Server
+# Hướng dẫn chạy và test từng task — Windows + MongoDB
 
 ## 1. Chuẩn bị và chạy ứng dụng
 
-1. Giải nén project vào một thư mục mới, ví dụ `C:\Projects\face-emotion-backend`.
-2. Mở SQL Server Management Studio, kết nối instance. Ghi lại Server name và cách đăng nhập. SSMS không thay thế SQL Server Database Engine.
-3. Trong SSMS, mở `scripts/create_database.sql` rồi Execute để tạo database face_emotion. Nếu dùng database khác, tự tạo database và sửa SQLSERVER_DATABASE tương ứng.
-4. Cài Microsoft ODBC Driver 18 bản phù hợp với Python/Windows 64-bit. Có thể kiểm tra driver sau khi cài dependency bằng lệnh bên dưới.
-5. Mở PowerShell trong thư mục project:
+1. Cài MongoDB (Community 7/8) hoặc tạo cluster Atlas miễn phí. Cách nhanh nhất là `docker compose up -d mongo`. File và video lưu trên Cloudinary, cần `CLOUDINARY_*` trong `.env`.
+2. Mở PowerShell trong thư mục project:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -16,46 +13,25 @@ Copy-Item .env.example .env
 .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Nếu Python 3.12 chưa có, cài Python 3.12 hoặc dùng Python 3.11+ đã cài để tạo venv. Dependency lock có điều kiện nền tảng cho Windows; uvloop chỉ được cài trên hệ điều hành hỗ trợ.
+Nếu Python 3.12 chưa có, dùng Python 3.11+ đã cài để tạo venv.
 
 Sửa `.env`:
 
 ```dotenv
 JWT_SECRET=<chuoi-ngau-nhien-vua-sinh>
-SQLSERVER_SERVER='localhost\SQLEXPRESS'
-SQLSERVER_DATABASE=face_emotion
-SQLSERVER_TRUSTED_CONNECTION=true
-SQLSERVER_ENCRYPT=true
-SQLSERVER_TRUST_SERVER_CERTIFICATE=true
+MONGO_URI=mongodb://localhost:27017/face_emotion
 ALLOW_TEACHER_REGISTRATION=true
-AI_MODE=mock
+AI_BASE_URL=http://localhost:9000
+AI_API_KEY=<cung-gia-tri-voi-dich-vu-AI>
 CORS_ORIGINS=["http://localhost:3000","http://localhost:8000"]
+CLOUDINARY_CLOUD_NAME=<cloud>
+CLOUDINARY_API_KEY=<key>
+CLOUDINARY_API_SECRET=<secret>
 ```
 
-`ALLOW_TEACHER_REGISTRATION=true` là thiết lập demo local để thử role teacher. Windows Authentication dùng tài khoản Windows đang chạy Python; nên là cùng tài khoản đăng nhập SSMS. Nếu dùng SQL login:
-
-```dotenv
-SQLSERVER_TRUSTED_CONNECTION=false
-SQLSERVER_USERNAME=<sql-login>
-SQLSERVER_PASSWORD='<password>'
-```
-
-Tên instance ví dụ:
-
-| Server name trong SSMS | Giá trị SQLSERVER_SERVER |
-|---|---|
-| `localhost` | `'localhost'` |
-| `.\SQLEXPRESS` | '.\SQLEXPRESS' |
-| `DESKTOP-ABC\SQLEXPRESS` | 'DESKTOP-ABC\SQLEXPRESS' |
-| TCP host có cổng cố định | `'localhost,1433'` |
-
-Giữ dấu nháy đơn trong `.env` để dấu `\` của named instance không bị hiểu thành escape. `TrustServerCertificate=true` chỉ dùng dev với chứng chỉ tự ký; production cần xác minh chứng chỉ. Các thuộc tính kết nối này theo [Microsoft ODBC connection keywords](https://learn.microsoft.com/en-us/sql/connect/odbc/dsn-connection-string-attribute).
+`ALLOW_TEACHER_REGISTRATION=true` là thiết lập demo local để thử role teacher. Tên database lấy từ path của `MONGO_URI`; collection và index được app tự tạo khi khởi động, không có bước migration. Với Atlas dùng `mongodb+srv://<user>:<password>@<cluster>/face_emotion`.
 
 ```powershell
-.\.venv\Scripts\python.exe -c "import pyodbc; print(pyodbc.drivers())"
-.\.venv\Scripts\python.exe scripts/check_sqlserver.py
-.\.venv\Scripts\alembic.exe upgrade head
-.\.venv\Scripts\alembic.exe check
 .\.venv\Scripts\uvicorn.exe app.main:create_app --factory --host 0.0.0.0 --port 8000 --workers 1 --ws-max-size 1048576
 ```
 
@@ -65,7 +41,7 @@ Giữ terminal API mở. Mở terminal thứ hai ở cùng thư mục để ch�
 .\.venv\Scripts\python.exe -m app.worker
 ```
 
-Mở [Swagger UI](http://localhost:8000/docs). `/health` kiểm tra API; `/ready` kiểm tra kết nối SQL. Trong SSMS refresh Tables để thấy users, refresh_sessions, meetings, participants, recordings, analysis_jobs, analysis_results, emotion_samples và bảng nội bộ alembic_version.
+Mở [Swagger UI](http://localhost:8000/docs). `/health` kiểm tra API; `/ready` ping MongoDB. Dùng MongoDB Compass hoặc `docker compose --profile tools up -d mongo-express` để xem các collection users, refresh_sessions, meetings, participants, recordings, analysis_jobs, analysis_results, emotion_samples, emotion_segments, materials, emotion_labels.
 
 ## 2. Test tự động theo từng task
 
@@ -74,16 +50,15 @@ Chạy lệnh trong terminal thứ ba. Không cần bật API/worker cho pytest:
 | Task | Lệnh PowerShell | Kết quả chính |
 |---|---|---|
 | Tính năng phòng học | `.\.venv\Scripts\python.exe -m pytest tests/test_classroom_features.py -v` | Slot học viên; socket refresh; frame/log; lịch sử/video; tài liệu; ICE config |
-| Migration | `.\.venv\Scripts\python.exe -m pytest tests/test_migration.py -v` | Upgrade database cũ, giữ nguyên dữ liệu |
 
-Các test chạy trên SQLite tạm và MongoDB giả lập (mongomock), không chạm database thật. Cài dependency và chạy:
+Các test chạy trên MongoDB giả lập (mongomock), không chạm database thật. Cài dependency và chạy:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e ".[test]"
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-AI và Cloudinary được giả lập trong test. Bộ test hiện tại không có tùy chọn `--sqlserver`; kiểm chứng SQL Server thật cần môi trường riêng. Mặc định ứng dụng dùng AI HTTP; ví dụ `AI_MODE=mock` ở phần setup chỉ dành cho test/demo.
+AI và Cloudinary được giả lập trong test. Kiểm chứng MongoDB thật cần một instance riêng. Ứng dụng luôn gọi dịch vụ AI thật; xem [REAL-DATA.md](REAL-DATA.md).
 
 ## 3. Test thủ công BE-01: tài khoản và phân quyền
 
@@ -103,10 +78,10 @@ Nếu không bật đăng ký teacher tự do, thêm teacher_registration_key đ
 
 Bấm Authorize ở Swagger, dán **access token teacher** vào ô Bearer. Gọi GET /auth/me: phải trả role teacher và đúng tên tiếng Việt. Login password sai phải trả 401; đăng ký email trùng phải trả 409. Dán token student rồi gọi POST /meetings phải bị 403.
 
-Kiểm tra SQL trong SSMS:
+Kiểm tra trong `mongosh`:
 
-```sql
-SELECT id, email, full_name, role, created_at FROM dbo.users;
+```javascript
+db.users.find({}, {_id: 0, id: 1, email: 1, full_name: 1, role: 1, created_at: 1})
 ```
 
 ## 4. Test thủ công BE-02: meeting
@@ -117,9 +92,9 @@ Authorize student, gọi POST /meetings/{meeting_id}/join. GET meeting phải c�
 
 Chưa end meeting ở bước này vì BE-03/BE-06 cần ongoing. Muốn test scheduled riêng: tạo room khác status scheduled, student join bị 409; teacher gọi start rồi student join thành công.
 
-```sql
-SELECT id, code, status, teacher_id FROM dbo.meetings;
-SELECT meeting_id, user_id, status, joined_at, left_at FROM dbo.participants;
+```javascript
+db.meetings.find({}, {_id: 0, id: 1, code: 1, status: 1, teacher_id: 1})
+db.participants.find({}, {_id: 0, meeting_id: 1, user_id: 1, status: 1, joined_at: 1, left_at: 1})
 ```
 
 ## 5. Test thủ công BE-03: WebSocket signaling
@@ -156,7 +131,7 @@ Console phải thấy teacher nhận OFFER có sender_id student. SDP ở đây 
 
 ## 6. Test thủ công BE-04: upload recording thật
 
-Điền credential Cloudinary trong `.env`, khởi động lại API và worker để đọc cấu hình mới. AI_MODE vẫn có thể là mock. Lấy một file MP4/WebM hợp lệ và dưới giới hạn dung lượng.
+Điền credential Cloudinary trong `.env`, khởi động lại API và worker để đọc cấu hình mới. Lấy một file MP4/WebM hợp lệ và dưới giới hạn dung lượng.
 
 PowerShell:
 
@@ -171,24 +146,24 @@ $upload | ConvertTo-Json -Depth 8
 $recordingId = $upload.data.id
 ```
 
-Response phải status uploaded, có duration và cloudinary_url. POST nhận raw body, không dùng multipart/FormData. File byte giả sẽ không upload thành công trên Cloudinary thật. GET /recordings/{id}/playback bằng teacher để lấy URL tải có chữ ký. Credential chưa có sẽ nhận 503; lúc đó dùng pytest để test flow với mock storage.
+Response phải status uploaded, có duration và cloudinary_url. POST nhận raw body, không dùng multipart/FormData. File byte giả sẽ không upload thành công trên Cloudinary thật. GET /recordings/{id}/playback bằng teacher để lấy URL tải có chữ ký. Credential chưa có sẽ nhận 503; hãy điền khoá Cloudinary thật (xem REAL-DATA.md).
 
-```sql
-SELECT id, meeting_id, duration, size_bytes, status, cloudinary_url FROM dbo.recordings;
+```javascript
+db.recordings.find({}, {_id: 0, id: 1, meeting_id: 1, duration: 1, size_bytes: 1, status: 1, cloudinary_url: 1})
 ```
 
 ## 7. Test thủ công BE-05: job phân tích
 
 Với recording vừa upload, Authorize teacher, POST /recordings/{recording_id}/analyze, không cần body. Response 202, status pending hoặc trạng thái hiện có nếu bấm lại.
 
-Worker đang chạy sẽ đổi processing rồi completed. Gọi GET /recordings/{recording_id}/status để kiểm tra. Mock chạy nhanh nên có thể không quan sát được processing qua poll; test tự động kiểm tra transaction/lease. Tắt worker trước Analyze sẽ thấy pending giữ nguyên; bật worker lại để thấy job được xử lý.
+Worker đang chạy sẽ đổi processing rồi completed. Gọi GET /recordings/{recording_id}/status để kiểm tra. Test tự động kiểm tra lease. Tắt worker trước Analyze sẽ thấy pending giữ nguyên; bật worker lại để thấy job được xử lý.
 
-```sql
-SELECT id, recording_id, state, attempts, lease_until, error_message FROM dbo.analysis_jobs;
-SELECT recording_id, completed_at, result FROM dbo.analysis_results;
+```javascript
+db.analysis_jobs.find({}, {_id: 0, id: 1, recording_id: 1, state: 1, attempts: 1, lease_until: 1, error_message: 1})
+db.analysis_results.find({}, {_id: 0, recording_id: 1, completed_at: 1, result: 1})
 ```
 
-Nếu status failed, đọc error_message và kiểm tra endpoint/credential AI; POST Analyze lại để retry. Bản mock không phân tích nội dung thật của video.
+Nếu status failed, đọc error_message và kiểm tra endpoint/credential AI; POST Analyze lại để retry.
 
 ## 8. Test thủ công BE-06: frame realtime
 
@@ -205,11 +180,10 @@ Invoke-RestMethod -Method Post `
   -ContentType "application/json" -Body $body
 ```
 
-Response có emotion/confidence, 7 probabilities, face_id, face_detected, frame_id, timestamp và received_at. Teacher nhận EMOTION khi trạng thái đổi hoặc sau 90 giây. Nếu teacher offline, delivered_to_teacher=false nhưng database vẫn có mẫu. Mặc định gửi cách nhau ít nhất 334 ms (~3 FPS); nhanh hơn bị 429. WebSocket FRAME là kênh chính, xem API.md. AI mock trả mock=true; AI thật không thấy mặt hoặc lỗi có fail_detection và failure_reason.
+Response có emotion/confidence, 7 probabilities, face_id, face_detected, frame_id, timestamp và received_at. Teacher nhận EMOTION khi trạng thái đổi hoặc sau 90 giây. Nếu teacher offline, delivered_to_teacher=false nhưng database vẫn có mẫu. Mặc định gửi cách nhau ít nhất 334 ms (~3 FPS); nhanh hơn bị 429. WebSocket FRAME là kênh chính, xem API.md. AI thật không thấy mặt hoặc lỗi có fail_detection và failure_reason.
 
-```sql
-SELECT TOP (20) student_id, [timestamp], emotion, confidence, mock
-FROM dbo.emotion_samples ORDER BY [timestamp] DESC;
+```javascript
+db.emotion_samples.find({}, {_id: 0, student_id: 1, timestamp: 1, emotion: 1, confidence: 1, mock: 1}).sort({timestamp: -1}).limit(20)
 ```
 
 ## 9. Test thủ công BE-07: báo cáo
@@ -230,11 +204,9 @@ Cuối cùng teacher gọi POST /meetings/{meeting_id}/end. GET meeting phải e
 
 | Hiện tượng | Kiểm tra |
 |---|---|
-| Missing ODBC Driver / IM002 | Cài đúng ODBC Driver 18; kiểm tra pyodbc.drivers() |
-| Server not found / 08001 | SQL Server service đang chạy; server/instance trùng SSMS; TCP/IP và cổng nếu dùng TCP |
-| Login failed / 28000 | Windows account hoặc SQL username/password; mixed authentication nếu dùng SQL login |
-| Cannot open database | Đã tạo face_emotion; login có user/quyền tương ứng trong database |
-| Certificate chain error | Local: TrustServerCertificate=true; production: certificate hợp lệ và false |
+| ServerSelectionTimeoutError | MongoDB chưa chạy hoặc `MONGO_URI` sai host/cổng; Atlas cần whitelist IP |
+| Authentication failed | User/password trong `MONGO_URI`; có thể cần `?authSource=admin` |
+| Duplicate key khi khởi động | Dữ liệu cũ vi phạm unique index (email, code, public_id) |
 | Teacher registration 403 | Đặt invite key hoặc cho phép đăng ký teacher trong demo local |
 | Job giữ pending | Terminal worker chưa chạy hoặc API/worker đọc khác database/env |
 | WebSocket frame đóng vì quá kích thước | Chạy Uvicorn với --ws-max-size 1048576 |
