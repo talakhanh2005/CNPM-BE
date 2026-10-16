@@ -99,6 +99,12 @@ class MeetingService:
         return meeting
 
     @meeting_operation
+    def delete(self, meeting_id, user):
+        self.require(meeting_id, user, owner=True, lock=True)
+        self.repo.delete(meeting_id)
+        self.db.commit()
+
+    @meeting_operation
     def end(self, meeting_id, user):
         meeting = self.require(meeting_id, user, owner=True, lock=True)
         if meeting.status != "ended":

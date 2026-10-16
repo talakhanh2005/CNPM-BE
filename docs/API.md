@@ -68,9 +68,17 @@ Contract/mô hình: `auth/model.py`, `auth/schema.py`; nghiệp vụ ở `auth/s
 | POST /meetings/M/join | Student/owner | Không | MeetingOut |
 | POST /meetings/M/leave | Member/owner | Không | MeetingOut |
 | POST /meetings/M/start | Owner | Không | MeetingOut |
+| DELETE /meetings/M | Teacher sở hữu meeting | Không | null, 200; message `Meeting deleted` |
 | POST /meetings/M/end | Owner | Không | MeetingOut |
 | GET /meetings | Teacher | Query offset, limit, mode | Lịch sử của chính giáo viên, gồm mode và analysis_status |
 | GET /meetings/M/ice-config | Active member | Không | iceServers, turn_configured |
+
+`DELETE /meetings/M` xóa vĩnh viễn meeting cùng participants, emotion logs, materials,
+recordings, analysis jobs và analysis results trong database, rồi đóng WebSocket của phòng.
+Áp dụng cho mọi trạng thái meeting. Cần `Authorization: Bearer <access-jwt>`.
+Trả 401 nếu chưa đăng nhập, 403 nếu không phải giáo viên sở hữu, 404 nếu meeting không tồn tại
+(kể cả xóa lại). File video/tài liệu trên Cloudinary được giữ lại.
+
 
 POST /meetings nhận thêm `mode="realtime"` (mặc định) hoặc `mode="after_session"`. Mode tách biệt với lifecycle `status`. Bản 1.2 hỗ trợ một teacher chủ phòng và nhiều student. `student_ids` chứa danh sách membership; `participants[].status` xác định người đang joined. `student_id` là trường legacy, không dùng cấp quyền. Giới hạn socket mặc định 100/phòng. Xem [contract bổ sung 1.2](BACKEND-TASKS.md) cho dashboard/summary, log CRUD, callback AI và Admin.
 

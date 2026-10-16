@@ -124,3 +124,11 @@ async def end(meeting_id: str, request: Request, user: Teacher, db: DB):
     meeting = await run_in_threadpool(MeetingService(db).end, meeting_id, user)
     await request.app.state.manager.close_room(meeting_id)
     return ok(meeting)
+
+
+@router.delete("/{meeting_id}", response_model=Envelope[None])
+async def delete(meeting_id: str, request: Request, user: Teacher, db: DB):
+    """Permanently delete an owned meeting and its database records; close room sockets."""
+    await run_in_threadpool(MeetingService(db).delete, meeting_id, user)
+    await request.app.state.manager.close_room(meeting_id)
+    return ok(None, "Meeting deleted")

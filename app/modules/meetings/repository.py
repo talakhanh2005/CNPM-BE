@@ -1,8 +1,12 @@
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from app.core.db import lock_row, new_id, now
 from app.core.mongo import model_from_doc
+from app.modules.analysis.model import AnalysisJob, AnalysisResult
+from app.modules.emotions.model import EmotionSample
+from app.modules.materials.model import Material
 from app.modules.meetings.model import Meeting, Participant
+from app.modules.recordings.model import Recording
 
 
 class MeetingRepository:
@@ -96,3 +100,23 @@ class MeetingRepository:
             .where(Participant.meeting_id == meeting_id, Participant.status == "joined")
             .values(status="left", left_at=now())
         )
+
+    def delete(self, meeting_id):
+        """Delete dependents before their parents on both database backends."""
+        if getattr(self.db, "is_mongo", False):
+            recording_ids = [
+                doc["id"]
+                for doc in self.db.collection("recordings").find({"meeting_id": meeting_id})
+            ]
+            for name in ("analysis_jobs", "analysis_results"):
+                self.db.collection(name).delete_many({"recording_id": {"$in": recording_ids}})
+            for name in ("emotion_samples", "materials", "recordings", "participants"):
+                self.db.collection(name).delete_many({"meeting_id": meeting_id})
+            self.db.collection("meetings").delete_one({"id": meeting_id})
+            return
+        recording_ids = select(Recording.id).where(Recording.meeting_id == meeting_id)
+        for model in (AnalysisJob, AnalysisResult):
+            self.db.execute(delete(model).where(model.recording_id.in_(recording_ids)))
+        for model in (EmotionSample, Material, Recording, Participant):
+            self.db.execute(delete(model).where(model.meeting_id == meeting_id))
+        self.db.execute(delete(Meeting).where(Meeting.id == meeting_id))
