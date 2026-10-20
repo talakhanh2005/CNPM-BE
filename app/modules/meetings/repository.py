@@ -1,12 +1,5 @@
-from sqlalchemy import delete, select, update
-
-from app.core.db import lock_row, new_id, now
-from app.core.mongo import model_from_doc
-from app.modules.analysis.model import AnalysisJob, AnalysisResult
-from app.modules.emotions.model import EmotionSample
-from app.modules.materials.model import Material
+from app.core.db import new_id, now
 from app.modules.meetings.model import Meeting, Participant
-from app.modules.recordings.model import Recording
 
 
 class MeetingRepository:
@@ -14,58 +7,33 @@ class MeetingRepository:
         self.db = db
 
     def get(self, meeting_id, lock=False):
-        if getattr(self.db, "is_mongo", False):
-            return self.db.get(Meeting, meeting_id)
-        statement = select(Meeting).where(Meeting.id == meeting_id)
-        if lock:
-            statement = lock_row(statement, Meeting, self.db)
-        return self.db.scalar(statement)
+        return self.db.get(Meeting, meeting_id)
 
     def by_code(self, code):
-        if getattr(self.db, "is_mongo", False):
-            meeting = model_from_doc(
-                Meeting, self.db.collection("meetings").find_one({"code": code.upper()})
-            )
-            if meeting is not None:
-                participants = list(
-                    self.db.collection("participants").find({"meeting_id": meeting.id})
-                )
-                meeting.participants = [model_from_doc(Participant, item) for item in participants]
-            return meeting
-        return self.db.scalar(select(Meeting).where(Meeting.code == code.upper()))
+        doc = self.db.collection("meetings").find_one({"code": code.upper()})
+        return self.get(doc["id"]) if doc else None
 
     def participant(self, meeting_id, user_id):
         return self.db.get(Participant, (meeting_id, user_id))
 
     def history(self, teacher_id, offset, limit, mode=None):
-        if getattr(self.db, "is_mongo", False):
-            query = {"teacher_id": teacher_id}
-            if mode == "realtime":
-                query["$or"] = [{"mode": "realtime"}, {"mode": {"$exists": False}}]
-            elif mode:
-                query["mode"] = mode
-            return [
-                self.db.get(Meeting, doc["id"])
-                for doc in self.db.collection("meetings")
-                .find(query)
-                .sort([("created_at", -1), ("id", -1)])
-                .skip(offset)
-                .limit(limit)
-            ]
-        statement = select(Meeting).where(Meeting.teacher_id == teacher_id)
-        if mode:
-            statement = statement.where(Meeting.mode == mode)
-        return self.db.scalars(
-            statement.order_by(Meeting.created_at.desc(), Meeting.id.desc())
-            .offset(offset)
+        query = {"teacher_id": teacher_id}
+        if mode == "realtime":
+            query["$or"] = [{"mode": "realtime"}, {"mode": {"$exists": False}}]
+        elif mode:
+            query["mode"] = mode
+        return [
+            self.get(doc["id"])
+            for doc in self.db.collection("meetings")
+            .find(query)
+            .sort([("created_at", -1), ("id", -1)])
+            .skip(offset)
             .limit(limit)
-        ).all()
+        ]
 
     def add(self, meeting):
-        if meeting.id is None:
-            meeting.id = new_id()
-        if meeting.created_at is None:
-            meeting.created_at = now()
+        meeting.id = meeting.id or new_id()
+        meeting.created_at = meeting.created_at or now()
         meeting.status = meeting.status or "ongoing"
         meeting.participants = []
         self.db.add(meeting)
@@ -75,13 +43,7 @@ class MeetingRepository:
     def join(self, meeting_id, user_id):
         participant = self.participant(meeting_id, user_id)
         if participant is None:
-            participant = Participant(
-                meeting_id=meeting_id,
-                user_id=user_id,
-                status="joined",
-                joined_at=now(),
-                left_at=None,
-            )
+            participant = Participant(meeting_id=meeting_id, user_id=user_id)
             self.db.add(participant)
         elif participant.status == "left":
             participant.status, participant.joined_at, participant.left_at = "joined", now(), None
@@ -89,34 +51,18 @@ class MeetingRepository:
         return participant
 
     def leave_all(self, meeting_id):
-        if getattr(self.db, "is_mongo", False):
-            self.db.collection("participants").update_many(
-                {"meeting_id": meeting_id, "status": "joined"},
-                {"$set": {"status": "left", "left_at": now()}},
-            )
-            return
-        self.db.execute(
-            update(Participant)
-            .where(Participant.meeting_id == meeting_id, Participant.status == "joined")
-            .values(status="left", left_at=now())
+        self.db.collection("participants").update_many(
+            {"meeting_id": meeting_id, "status": "joined"},
+            {"$set": {"status": "left", "left_at": now()}},
         )
 
     def delete(self, meeting_id):
-        """Delete dependents before their parents on both database backends."""
-        if getattr(self.db, "is_mongo", False):
-            recording_ids = [
-                doc["id"]
-                for doc in self.db.collection("recordings").find({"meeting_id": meeting_id})
-            ]
-            for name in ("analysis_jobs", "analysis_results"):
-                self.db.collection(name).delete_many({"recording_id": {"$in": recording_ids}})
-            for name in ("emotion_samples", "materials", "recordings", "participants"):
-                self.db.collection(name).delete_many({"meeting_id": meeting_id})
-            self.db.collection("meetings").delete_one({"id": meeting_id})
-            return
-        recording_ids = select(Recording.id).where(Recording.meeting_id == meeting_id)
-        for model in (AnalysisJob, AnalysisResult):
-            self.db.execute(delete(model).where(model.recording_id.in_(recording_ids)))
-        for model in (EmotionSample, Material, Recording, Participant):
-            self.db.execute(delete(model).where(model.meeting_id == meeting_id))
-        self.db.execute(delete(Meeting).where(Meeting.id == meeting_id))
+        """Remove the meeting and all documents owned by it."""
+        recording_ids = [
+            doc["id"] for doc in self.db.collection("recordings").find({"meeting_id": meeting_id})
+        ]
+        for name in ("analysis_jobs", "analysis_results"):
+            self.db.collection(name).delete_many({"recording_id": {"$in": recording_ids}})
+        for name in ("emotion_samples", "materials", "recordings", "participants"):
+            self.db.collection(name).delete_many({"meeting_id": meeting_id})
+        self.db.collection("meetings").delete_one({"id": meeting_id})

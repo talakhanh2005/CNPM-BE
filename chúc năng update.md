@@ -211,3 +211,5 @@ Chưa triển khai lên server thật, chưa chạy migration/provision trên da
 - [OpenAPI hiện tại](docs/openapi.json)
 
 Báo cáo regression cũ ghi 58 tests ở thời điểm trước; kết quả mới nhất sau cập nhật recording/report là 68 tests như mục 11.
+
+

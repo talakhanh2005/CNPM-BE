@@ -3,12 +3,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
+from pymongo.errors import PyMongoError
 
 from app import models  # noqa: F401
 from app.core.config import get_settings
-from app.core.db import make_database
 from app.core.errors import AppError, install_handlers
 from app.core.limits import RateLimiter, RequestLimitsMiddleware
 from app.core.mongo import make_mongo_database
@@ -29,15 +27,11 @@ from app.modules.signaling.router import router as signaling_router
 
 
 def create_app(settings=None, session_factory=None, ai=None, storage=None):
-    """Application factory; inject SQLAlchemy sessions and adapters for integration tests."""
+    """Application factory; inject MongoDB sessions and adapters for integration tests."""
     settings = settings or get_settings()
     database = None
-    engine = None
     if session_factory is None:
-        if settings.mongo_uri:
-            database, session_factory = make_mongo_database(settings.mongo_uri)
-        else:
-            engine, session_factory = make_database(settings.sqlalchemy_url)
+        database, session_factory = make_mongo_database(settings.mongo_uri)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -46,8 +40,6 @@ def create_app(settings=None, session_factory=None, ai=None, storage=None):
             await app.state.manager.close_room(room)
         if database is not None:
             database.close()
-        if engine is not None:
-            engine.dispose()
 
     app = FastAPI(
         title="Face Emotion Backend",
@@ -97,21 +89,13 @@ def create_app(settings=None, session_factory=None, ai=None, storage=None):
     @app.get("/ready", response_model=Envelope[dict[str, str]], tags=["Health"])
     def ready():
         """Database connectivity readiness."""
-        if database is not None:
-            try:
-                database.ping()
-            except Exception as exc:
-                raise AppError(
-                    503,
-                    "DATABASE_UNAVAILABLE",
-                    "Database is not ready",
-                    [{"type": exc.__class__.__name__, "msg": str(exc), "database": "mongodb"}],
-                ) from exc
-            return ok({"database": "ok", "driver": "mongodb"})
         try:
-            with session_factory() as db:
-                db.execute(text("SELECT 1"))
-        except SQLAlchemyError as exc:
+            if database is not None:
+                database.ping()
+            else:
+                with session_factory() as db:
+                    db.database.command("ping")
+        except PyMongoError as exc:
             raise AppError(
                 503,
                 "DATABASE_UNAVAILABLE",
@@ -119,19 +103,10 @@ def create_app(settings=None, session_factory=None, ai=None, storage=None):
                 [
                     {
                         "type": exc.__class__.__name__,
-                        "msg": str(exc),
-                        "config": {
-                            "database_url_set": bool(settings.database_url),
-                            "driver": settings.sqlserver_driver,
-                            "server": settings.sqlserver_server,
-                            "database": settings.sqlserver_database,
-                            "trusted_connection": settings.sqlserver_trusted_connection,
-                            "encrypt": settings.sqlserver_encrypt,
-                            "trust_server_certificate": settings.sqlserver_trust_server_certificate,
-                        },
+                        "database": "mongodb",
                     }
                 ],
             ) from exc
-        return ok({"database": "ok"})
+        return ok({"database": "ok", "driver": "mongodb"})
 
     return app

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
-from sqlalchemy import select
 
 from app.core.dependencies import DB, Admin
 from app.core.mongo import model_from_doc
@@ -26,13 +25,10 @@ class MeetingsOut(BaseModel):
 
 
 def page(db, model, offset, limit):
-    if getattr(db, "is_mongo", False):
-        docs = db.collection(model.__tablename__).find().sort("id", 1).skip(offset).limit(limit)
-        # Load relationships through the session for meetings.
-        return [
-            db.get(Meeting, d["id"]) if model is Meeting else model_from_doc(model, d) for d in docs
-        ]
-    return db.scalars(select(model).order_by(model.id).offset(offset).limit(limit)).all()
+    docs = db.collection(model.__collection__).find().sort("id", 1).skip(offset).limit(limit)
+    return [
+        db.get(Meeting, d["id"]) if model is Meeting else model_from_doc(model, d) for d in docs
+    ]
 
 
 @router.get("/users", response_model=Envelope[UsersOut])

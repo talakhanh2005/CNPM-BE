@@ -6993,7 +6993,7 @@
           "delivered_to_teacher": {
             "type": "boolean",
             "title": "Delivered To Teacher",
-            "description": "Best-effort socket delivery; SQL record is authoritative"
+            "description": "Best-effort socket delivery; MongoDB document is authoritative"
           }
         },
         "additionalProperties": false,

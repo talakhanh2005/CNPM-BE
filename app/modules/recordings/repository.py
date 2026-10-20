@@ -1,6 +1,4 @@
-from sqlalchemy import select
-
-from app.core.db import lock_row, new_id, now
+from app.core.db import new_id, now
 from app.modules.recordings.model import Recording
 
 
@@ -9,12 +7,7 @@ class RecordingRepository:
         self.db = db
 
     def get(self, recording_id, lock=False):
-        if getattr(self.db, "is_mongo", False):
-            return self.db.get(Recording, recording_id)
-        statement = select(Recording).where(Recording.id == recording_id)
-        if lock:
-            statement = lock_row(statement, Recording, self.db)
-        return self.db.scalar(statement)
+        return self.db.get(Recording, recording_id)
 
     def add(self, **values):
         values.setdefault("id", new_id())

@@ -56,7 +56,7 @@ Refresh/logout request:
 
 Refresh trả TokenOut mới. FE phải thay **cả hai** token sau refresh, chỉ chạy một request refresh tại một thời điểm. Logout trả `{"success":true,"data":null,"message":"Logged out"}`; access JWT cũ còn hiệu lực đến exp. Password từ 8 ký tự, tối đa 72 **UTF-8 bytes** do bcrypt. Email không phân biệt chữ hoa/thường.
 
-Contract/mô hình: `auth/model.py`, `auth/schema.py`; nghiệp vụ ở `auth/service.py`, SQL ở `auth/repository.py`. Test: login/register/me bằng httpx AsyncClient; duplicate email, sai mật khẩu, JWT hết hạn/sai type, refresh reuse, concurrent refresh, invite thiếu.
+Contract/mô hình: `auth/model.py`, `auth/schema.py`; nghiệp vụ ở `auth/service.py`, truy vấn MongoDB ở `auth/repository.py`. Test: login/register/me bằng httpx AsyncClient; duplicate email, sai mật khẩu, JWT hết hạn/sai type, refresh reuse, concurrent refresh, invite thiếu.
 
 ## 2. BE-02 Meeting
 
@@ -311,6 +311,6 @@ Contract: `reports/schema.py`, `ReportSelection` read model; repository đọc A
 
 `GET /health` trả `data={"status":"ok"}`. `GET /ready` kiểm tra SELECT 1, trả `data={"database":"ok"}`. Readiness chưa đo worker lag hoặc trạng thái Cloudinary/AI; cần bổ sung giám sát vận hành khi deploy.
 
-## Chạy trên SQL Server
+## Chạy trên MongoDB
 
-Cấu hình SQL Server và lệnh test từng module nằm trong RUN-AND-TEST.md. API/WS giữ nguyên hợp đồng của bản 1.0; thay đổi database nằm trong adapter, migration và repository.
+Cấu hình MONGO_URI và lệnh test từng module nằm trong RUN-AND-TEST.md. API/WS giữ nguyên hợp đồng; toàn bộ lưu trữ sử dụng MongoDB. Không cần ODBC hoặc Alembic.

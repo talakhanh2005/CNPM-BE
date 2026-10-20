@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from app.core.config import Settings
-from app.core.db import Base, make_database, now
+from app.core.db import now
 from app.core.mongo import MongoDatabase, MongoSession
 from app.core.security import issue_token
 from app.integrations.ai import MockAIClient
@@ -41,28 +41,22 @@ class Storage:
         return "https://storage.test/signed-document"
 
 
-@pytest.fixture(params=["sqlite", "mongo"])
+@pytest.fixture
 def env(request, tmp_path):
     settings = Settings(
         _env_file=None,
         jwt_secret="test-secret-" * 4,
         ai_mode="mock",
-        database_url="sqlite://",
         bcrypt_rounds=4,
     )
-    engine = None
-    if request.param == "sqlite":
-        engine, factory = make_database(f"sqlite:///{tmp_path / 'test.db'}")
-        Base.metadata.create_all(engine)
-    else:
-        database = mongomock.MongoClient(tz_aware=True).test
-        indexes = MongoDatabase("mongodb://unused/test")
-        indexes.database = database
-        indexes.ensure_indexes()
+    database = mongomock.MongoClient(tz_aware=True).test
+    indexes = MongoDatabase("mongodb://unused/test")
+    indexes.database = database
+    indexes.ensure_indexes()
 
-        @contextmanager
-        def factory():
-            yield MongoSession(database)
+    @contextmanager
+    def factory():
+        yield MongoSession(database)
 
     users = {}
     with factory() as db:
@@ -95,8 +89,6 @@ def env(request, tmp_path):
             tokens=tokens,
             headers=headers,
         )
-    if engine:
-        engine.dispose()
 
 
 @pytest.fixture

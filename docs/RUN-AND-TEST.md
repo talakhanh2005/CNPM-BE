@@ -1,12 +1,8 @@
-# Hướng dẫn chạy và test từng task — Windows + SQL Server
+# Chạy và kiểm thử — Windows + MongoDB
 
-## 1. Chuẩn bị và chạy ứng dụng
+## Cài đặt
 
-1. Giải nén project vào một thư mục mới, ví dụ `C:\Projects\face-emotion-backend`.
-2. Mở SQL Server Management Studio, kết nối instance. Ghi lại Server name và cách đăng nhập. SSMS không thay thế SQL Server Database Engine.
-3. Trong SSMS, mở `scripts/create_database.sql` rồi Execute để tạo database face_emotion. Nếu dùng database khác, tự tạo database và sửa SQLSERVER_DATABASE tương ứng.
-4. Cài Microsoft ODBC Driver 18 bản phù hợp với Python/Windows 64-bit. Có thể kiểm tra driver sau khi cài dependency bằng lệnh bên dưới.
-5. Mở PowerShell trong thư mục project:
+Cần Python 3.11+ và MongoDB local hoặc Atlas. Chạy PowerShell trong thư mục backend:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -16,228 +12,97 @@ Copy-Item .env.example .env
 .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Nếu Python 3.12 chưa có, cài Python 3.12 hoặc dùng Python 3.11+ đã cài để tạo venv. Dependency lock có điều kiện nền tảng cho Windows; uvloop chỉ được cài trên hệ điều hành hỗ trợ.
-
-Sửa `.env`:
+Đặt chuỗi ngẫu nhiên vào JWT_SECRET. Cấu hình tối thiểu:
 
 ```dotenv
-JWT_SECRET=<chuoi-ngau-nhien-vua-sinh>
-SQLSERVER_SERVER='localhost\SQLEXPRESS'
-SQLSERVER_DATABASE=face_emotion
-SQLSERVER_TRUSTED_CONNECTION=true
-SQLSERVER_ENCRYPT=true
-SQLSERVER_TRUST_SERVER_CERTIFICATE=true
-ALLOW_TEACHER_REGISTRATION=true
-AI_MODE=mock
-CORS_ORIGINS=["http://localhost:3000","http://localhost:8000"]
+MONGO_URI=mongodb://localhost:27017/face_emotion
+JWT_SECRET=<chuỗi-ngẫu-nhiên-ít-nhất-32-ký-tự>
+AI_MODE=http
+AI_BASE_URL=http://localhost:9000
 ```
 
-`ALLOW_TEACHER_REGISTRATION=true` là thiết lập demo local để thử role teacher. Windows Authentication dùng tài khoản Windows đang chạy Python; nên là cùng tài khoản đăng nhập SSMS. Nếu dùng SQL login:
+Atlas dùng connection string mongodb+srv://. Nếu URI không có tên database, backend dùng face_emotion. Không cấu hình DATABASE_URL hoặc SQLSERVER_*. Không cần ODBC hoặc Alembic. Với demo local có thể đặt AI_MODE=mock và ALLOW_TEACHER_REGISTRATION=true; production không cho phép hai tùy chọn này.
 
-```dotenv
-SQLSERVER_TRUSTED_CONNECTION=false
-SQLSERVER_USERNAME=<sql-login>
-SQLSERVER_PASSWORD='<password>'
-```
-
-Tên instance ví dụ:
-
-| Server name trong SSMS | Giá trị SQLSERVER_SERVER |
-|---|---|
-| `localhost` | `'localhost'` |
-| `.\SQLEXPRESS` | '.\SQLEXPRESS' |
-| `DESKTOP-ABC\SQLEXPRESS` | 'DESKTOP-ABC\SQLEXPRESS' |
-| TCP host có cổng cố định | `'localhost,1433'` |
-
-Giữ dấu nháy đơn trong `.env` để dấu `\` của named instance không bị hiểu thành escape. `TrustServerCertificate=true` chỉ dùng dev với chứng chỉ tự ký; production cần xác minh chứng chỉ. Các thuộc tính kết nối này theo [Microsoft ODBC connection keywords](https://learn.microsoft.com/en-us/sql/connect/odbc/dsn-connection-string-attribute).
+Kiểm tra kết nối và tạo index:
 
 ```powershell
-.\.venv\Scripts\python.exe -c "import pyodbc; print(pyodbc.drivers())"
-.\.venv\Scripts\python.exe scripts/check_sqlserver.py
-.\.venv\Scripts\alembic.exe upgrade head
-.\.venv\Scripts\alembic.exe check
+.\.venv\Scripts\python.exe -m scripts.check_mongo
+```
+
+Công cụ chỉ in trạng thái, không in URI/mật khẩu. Index cũng được tạo khi API/worker kết nối MongoDB lần đầu.
+
+## API và worker
+
+Terminal thứ nhất:
+
+```powershell
 .\.venv\Scripts\uvicorn.exe app.main:create_app --factory --host 0.0.0.0 --port 8000 --workers 1 --ws-max-size 1048576
 ```
 
-Giữ terminal API mở. Mở terminal thứ hai ở cùng thư mục để chạy worker:
+Terminal thứ hai:
 
 ```powershell
 .\.venv\Scripts\python.exe -m app.worker
 ```
 
-Mở [Swagger UI](http://localhost:8000/docs). `/health` kiểm tra API; `/ready` kiểm tra kết nối SQL. Trong SSMS refresh Tables để thấy users, refresh_sessions, meetings, participants, recordings, analysis_jobs, analysis_results, emotion_samples và bảng nội bộ alembic_version.
+Mở http://localhost:8000/docs. GET /health kiểm tra API; GET /ready kiểm tra MongoDB. Dùng MongoDB Compass hoặc mongosh để xem các collection. Cloudinary cần credential thật để upload; worker cần AI HTTP hợp lệ hoặc mock rõ ràng trong môi trường demo.
 
-## 2. Test tự động theo từng task
+Tạo admin, mật khẩu được nhập qua prompt:
 
-Chạy lệnh trong terminal thứ ba. Không cần bật API/worker cho pytest: test tự khởi tạo app và gọi worker function khi cần.
+```powershell
+.\.venv\Scripts\python.exe -m scripts.create_admin --email admin@example.com --name "Admin"
+```
 
-| Task | Lệnh PowerShell | Kết quả chính |
-|---|---|---|
-| Tính năng phòng học | `.\.venv\Scripts\python.exe -m pytest tests/test_classroom_features.py -v` | Slot học viên; socket refresh; frame/log; lịch sử/video; tài liệu; ICE config |
-| Migration | `.\.venv\Scripts\python.exe -m pytest tests/test_migration.py -v` | Upgrade database cũ, giữ nguyên dữ liệu |
-
-Các test chạy trên SQLite tạm và MongoDB giả lập (mongomock), không chạm database thật. Cài dependency và chạy:
+## Kiểm thử tự động
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e ".[test]"
 .\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m ruff check app scripts
 ```
 
-AI và Cloudinary được giả lập trong test. Bộ test hiện tại không có tùy chọn `--sqlserver`; kiểm chứng SQL Server thật cần môi trường riêng. Mặc định ứng dụng dùng AI HTTP; ví dụ `AI_MODE=mock` ở phần setup chỉ dành cho test/demo.
+Pytest dùng mongomock với timezone UTC và index như ứng dụng. AI/storage được giả lập. Không cần bật API, worker hoặc MongoDB thật để chạy test. Các test này không thay thế kiểm thử kết nối, cạnh tranh ghi và crash recovery trên MongoDB thật.
 
-## 3. Test thủ công BE-01: tài khoản và phân quyền
-
-Trong Swagger, chọn POST /auth/register → Try it out. Tạo teacher:
-
-```json
-{"email":"teacher@example.com","password":"SecurePass123!","full_name":"Nguyễn An","role":"teacher"}
-```
-
-Tạo student:
-
-```json
-{"email":"student@example.com","password":"SecurePass123!","full_name":"Trần Bình","role":"student"}
-```
-
-Nếu không bật đăng ký teacher tự do, thêm teacher_registration_key đúng cấu hình. Gọi POST /auth/login với email/password từng người. Lưu access_token, refresh_token và id riêng cho teacher/student.
-
-Bấm Authorize ở Swagger, dán **access token teacher** vào ô Bearer. Gọi GET /auth/me: phải trả role teacher và đúng tên tiếng Việt. Login password sai phải trả 401; đăng ký email trùng phải trả 409. Dán token student rồi gọi POST /meetings phải bị 403.
-
-Kiểm tra SQL trong SSMS:
-
-```sql
-SELECT id, email, full_name, role, created_at FROM dbo.users;
-```
-
-## 4. Test thủ công BE-02: meeting
-
-Authorize teacher, gọi POST /meetings với `{"status":"ongoing"}`. Lưu id (meeting_id), code và teacher_id.
-
-Authorize student, gọi POST /meetings/{meeting_id}/join. GET meeting phải có cả teacher và student, status joined. Gọi leave: student thành left nhưng record vẫn còn. Gọi join lại để chuẩn bị test WebSocket/frame. Có thể thử POST /meetings/join bằng `{"code":"<room-code>"}`.
-
-Chưa end meeting ở bước này vì BE-03/BE-06 cần ongoing. Muốn test scheduled riêng: tạo room khác status scheduled, student join bị 409; teacher gọi start rồi student join thành công.
-
-```sql
-SELECT id, code, status, teacher_id FROM dbo.meetings;
-SELECT meeting_id, user_id, status, joined_at, left_at FROM dbo.participants;
-```
-
-## 5. Test thủ công BE-03: WebSocket signaling
-
-Swagger không gửi WebSocket trực tiếp. Cách dễ nhất là dùng pytest cho module này. Nếu muốn quan sát thủ công, mở Developer Tools → Console trên trang `http://localhost:8000/docs`, rồi chạy:
-
-```javascript
-const meetingId = prompt("meeting_id");
-const teacherId = prompt("teacher_id");
-const teacherToken = prompt("teacher access_token");
-const studentToken = prompt("student access_token");
-function connect(token) {
-  const ws = new WebSocket(`ws://localhost:8000/ws/meetings/${meetingId}`);
-  ws.onopen = () => ws.send(JSON.stringify({type: "AUTH", token}));
-  ws.onmessage = e => console.log(JSON.parse(e.data));
-  return ws;
-}
-const teacherWS = connect(teacherToken);
-const studentWS = connect(studentToken);
-```
-
-Chờ thấy JOIN rồi chạy tiếp:
-
-```javascript
-studentWS.send(JSON.stringify({
-  type: "OFFER", target_id: teacherId,
-  payload: {type: "offer", sdp: "v=0\r\n"}
-}));
-studentWS.send(JSON.stringify({type:"CAMERA_STATUS",payload:{enabled:false}}));
-studentWS.send(JSON.stringify({type:"MIC_STATUS",payload:{enabled:true}}));
-```
-
-Console phải thấy teacher nhận OFFER có sender_id student. SDP ở đây chỉ là dữ liệu thử relay, không dựng cuộc gọi video thực. Giữ cả hai socket mở để test BE-06. Cuối cùng đóng studentWS sẽ phát LEAVE và cập nhật participant thành left; muốn gửi frame sau đó phải REST join lại.
-
-## 6. Test thủ công BE-04: upload recording thật
-
-Điền credential Cloudinary trong `.env`, khởi động lại API và worker để đọc cấu hình mới. AI_MODE vẫn có thể là mock. Lấy một file MP4/WebM hợp lệ và dưới giới hạn dung lượng.
-
-PowerShell:
-
-```powershell
-$meetingId = "<meeting-id>"
-$teacherToken = "<teacher-access-token>"
-$upload = Invoke-RestMethod -Method Post `
-  -Uri "http://localhost:8000/meetings/$meetingId/recordings" `
-  -Headers @{Authorization="Bearer $teacherToken"} `
-  -ContentType "video/mp4" -InFile "C:\Videos\lesson.mp4"
-$upload | ConvertTo-Json -Depth 8
-$recordingId = $upload.data.id
-```
-
-Response phải status uploaded, có duration và cloudinary_url. POST nhận raw body, không dùng multipart/FormData. File byte giả sẽ không upload thành công trên Cloudinary thật. GET /recordings/{id}/playback bằng teacher để lấy URL tải có chữ ký. Credential chưa có sẽ nhận 503; lúc đó dùng pytest để test flow với mock storage.
-
-```sql
-SELECT id, meeting_id, duration, size_bytes, status, cloudinary_url FROM dbo.recordings;
-```
-
-## 7. Test thủ công BE-05: job phân tích
-
-Với recording vừa upload, Authorize teacher, POST /recordings/{recording_id}/analyze, không cần body. Response 202, status pending hoặc trạng thái hiện có nếu bấm lại.
-
-Worker đang chạy sẽ đổi processing rồi completed. Gọi GET /recordings/{recording_id}/status để kiểm tra. Mock chạy nhanh nên có thể không quan sát được processing qua poll; test tự động kiểm tra transaction/lease. Tắt worker trước Analyze sẽ thấy pending giữ nguyên; bật worker lại để thấy job được xử lý.
-
-```sql
-SELECT id, recording_id, state, attempts, lease_until, error_message FROM dbo.analysis_jobs;
-SELECT recording_id, completed_at, result FROM dbo.analysis_results;
-```
-
-Nếu status failed, đọc error_message và kiểm tra endpoint/credential AI; POST Analyze lại để retry. Bản mock không phân tích nội dung thật của video.
-
-## 8. Test thủ công BE-06: frame realtime
-
-Student phải joined và meeting ongoing. Teacher nên có WebSocket đang mở như bước BE-03. Dùng ảnh JPEG nhỏ, ví dụ 640x360 và dưới 512 KiB:
-
-```powershell
-$meetingId = "<meeting-id>"
-$studentToken = "<student-access-token>"
-$frameBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\Images\frame.jpg"))
-$body = @{frame_id=[guid]::NewGuid().ToString();timestamp=[DateTimeOffset]::UtcNow.ToString("o");frame_base64=$frameBase64;content_type="image/jpeg"} | ConvertTo-Json
-Invoke-RestMethod -Method Post `
-  -Uri "http://localhost:8000/meetings/$meetingId/frames" `
-  -Headers @{Authorization="Bearer $studentToken"} `
-  -ContentType "application/json" -Body $body
-```
-
-Response có emotion/confidence, 7 probabilities, face_id, face_detected, frame_id, timestamp và received_at. Teacher nhận EMOTION khi trạng thái đổi hoặc sau 90 giây. Nếu teacher offline, delivered_to_teacher=false nhưng database vẫn có mẫu. Mặc định gửi cách nhau ít nhất 334 ms (~3 FPS); nhanh hơn bị 429. WebSocket FRAME là kênh chính, xem API.md. AI mock trả mock=true; AI thật không thấy mặt hoặc lỗi có fail_detection và failure_reason.
-
-```sql
-SELECT TOP (20) student_id, [timestamp], emotion, confidence, mock
-FROM dbo.emotion_samples ORDER BY [timestamp] DESC;
-```
-
-## 9. Test thủ công BE-07: báo cáo
-
-Authorize teacher, lần lượt gọi:
-
-```text
-GET /recordings/{recording_id}/analysis
-GET /meetings/{meeting_id}/report
-GET /meetings/{meeting_id}/report?source=realtime
-```
-
-Recording completed có distribution/timeline/summary. Source=auto ưu tiên batch đã completed, vì vậy dùng source=realtime nếu muốn thấy mẫu vừa gửi ở BE-06. Room chưa có phân tích trả mảng/object rỗng có thông báo, không phải lỗi 500. Token student hoặc teacher không sở hữu phòng phải bị 403.
-
-Cuối cùng teacher gọi POST /meetings/{meeting_id}/end. GET meeting phải ended, ended_at có giá trị; WS nhận MEETING_ENDED rồi đóng. Student không thể join/gửi frame vào phòng ended.
-
-## Lỗi kết nối thường gặp
-
-| Hiện tượng | Kiểm tra |
+| Nhóm | File test |
 |---|---|
-| Missing ODBC Driver / IM002 | Cài đúng ODBC Driver 18; kiểm tra pyodbc.drivers() |
-| Server not found / 08001 | SQL Server service đang chạy; server/instance trùng SSMS; TCP/IP và cổng nếu dùng TCP |
-| Login failed / 28000 | Windows account hoặc SQL username/password; mixed authentication nếu dùng SQL login |
-| Cannot open database | Đã tạo face_emotion; login có user/quyền tương ứng trong database |
-| Certificate chain error | Local: TrustServerCertificate=true; production: certificate hợp lệ và false |
-| Teacher registration 403 | Đặt invite key hoặc cho phép đăng ký teacher trong demo local |
-| Job giữ pending | Terminal worker chưa chạy hoặc API/worker đọc khác database/env |
-| WebSocket frame đóng vì quá kích thước | Chạy Uvicorn với --ws-max-size 1048576 |
-| Command script không import được app | Cài package bằng `pip install --no-deps -e .` trong cùng venv |
+| Phòng học, signaling, frame, tài liệu, worker | tests/test_classroom_features.py |
+| Callback, dashboard, admin, refresh token | tests/test_backend_tasks.py |
+| Upload theo học sinh và báo cáo | tests/test_recording_student.py |
+| Xóa phòng và dữ liệu con | tests/test_meeting_delete.py |
+| Tên người tham gia | tests/test_participant_names.py |
+| MongoDB index, insert, merge và model | tests/test_mongo_persistence.py |
+| Cấu hình MongoDB và lỗi trùng dữ liệu | tests/test_mongo_compatibility.py |
 
-Đổi `.env` xong cần restart API/worker. JWT_SECRET phải giống nhau giữa các lần chạy nếu muốn token đang dùng tiếp tục hợp lệ.
+## Kiểm thử thủ công
+
+1. Đăng ký teacher/student ở POST /auth/register, đăng nhập ở POST /auth/login. Dùng Authorize trong Swagger với access token. Teacher registration cần key hoặc cấu hình demo local.
+2. Teacher tạo phòng POST /meetings; student join bằng ID hoặc code. GET /meetings/{id} phải hiển thị membership và tên học sinh. Thử leave/rejoin, start/end và truy cập bằng giáo viên khác.
+3. Với phòng realtime, student gửi POST /meetings/{id}/frames với frame_id, timestamp có timezone và JPEG/PNG base64 theo schema. Teacher kiểm tra emotion-logs và dashboard. PATCH logged chỉ đổi hiển thị; DELETE loại sample khỏi thống kê.
+4. Teacher upload tài liệu qua endpoint trong Swagger với Content-Type và raw body đúng định dạng. Student thuộc phòng có thể xem danh sách và lấy URL tải. Người ngoài phòng phải bị từ chối.
+5. Teacher upload video camera của từng học sinh qua POST /meetings/{id}/recordings?student_id={id}, raw video body. Thiếu student_id trả 422. Với after_session, worker tự xử lý job; realtime dùng endpoint yêu cầu phân tích theo API.
+6. Kiểm tra trạng thái bản ghi và report sau khi worker hoàn tất. Đối chiếu phân quyền giữa các phòng và giữa các học sinh.
+7. Admin gọi GET /admin/users và /admin/meetings. Response user không được lộ password_hash.
+8. Teacher xóa phòng, kiểm tra các document liên quan đã bị xóa và phòng khác còn nguyên.
+
+Hợp đồng request/response và signaling chi tiết nằm trong API.md; tích hợp AI trong AI-CONTRACT.md.
+
+Ví dụ truy vấn mongosh:
+
+```javascript
+use face_emotion
+db.users.find({}, {password_hash: 0})
+db.meetings.find({teacher_id: "<teacher-id>"})
+db.participants.find({meeting_id: "<meeting-id>"})
+db.analysis_jobs.find({state: "pending"})
+db.emotion_samples.find({meeting_id: "<meeting-id>"}).sort({timestamp: 1})
+db.materials.getIndexes()
+```
+
+## Sự cố thường gặp
+
+- ServerSelectionTimeoutError: kiểm tra MongoDB service, host/port, Atlas network access và firewall.
+- AuthenticationFailure: kiểm tra user/password, authSource và quyền tạo index/đọc/ghi.
+- DuplicateKeyError khi tạo index: database đã có dữ liệu trùng; sao lưu và xử lý trùng trước khi chạy lại.
+- Job pending: kiểm tra worker chạy cùng MONGO_URI và log AI/storage.
+- API trả 503 ở /ready: MongoDB chưa sẵn sàng; /health vẫn có thể trả 200.
+- Meeting cũ thiếu mode vẫn được coi là realtime. Dữ liệu SQL cũ không tự chuyển sang MongoDB; cần quy trình xuất/nhập và đối chiếu riêng.

@@ -2,8 +2,6 @@ from io import BytesIO
 from pathlib import PurePath
 from zipfile import BadZipFile, ZipFile
 
-from sqlalchemy import select
-
 from app.core.db import new_id, now
 from app.core.errors import AppError
 from app.core.mongo import model_from_doc
@@ -100,22 +98,14 @@ class MaterialService:
 
     def list(self, meeting_id, user, offset, limit):
         MeetingService(self.db).require(meeting_id, user)
-        if getattr(self.db, "is_mongo", False):
-            return [
-                model_from_doc(Material, doc)
-                for doc in self.db.collection("materials")
-                .find({"meeting_id": meeting_id})
-                .sort([("created_at", -1), ("id", -1)])
-                .skip(offset)
-                .limit(limit)
-            ]
-        return self.db.scalars(
-            select(Material)
-            .where(Material.meeting_id == meeting_id)
-            .order_by(Material.created_at.desc(), Material.id.desc())
-            .offset(offset)
+        return [
+            model_from_doc(Material, doc)
+            for doc in self.db.collection("materials")
+            .find({"meeting_id": meeting_id})
+            .sort([("created_at", -1), ("id", -1)])
+            .skip(offset)
             .limit(limit)
-        ).all()
+        ]
 
     def require(self, material_id, user):
         material = self.db.get(Material, material_id)

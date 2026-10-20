@@ -48,7 +48,7 @@ class RecordingService:
             raise AppError(415, "UNSUPPORTED_VIDEO", "Expected an MP4, MOV or WebM video body")
         recording_id = new_id()
         public_id = f"face-emotion/{meeting_id}/{recording_id}"
-        # Release SQL transaction before the remote upload.
+        # Persist pending changes before the remote upload.
         self.db.commit()
         asset = self.storage.upload(data, public_id)
         try:

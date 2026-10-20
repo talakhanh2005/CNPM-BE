@@ -5,6 +5,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 from app.core.dependencies import DB, Student, Teacher
 from app.core.errors import AppError
+from app.core.mongo import doc_from_model
 from app.core.schemas import Envelope, ok
 from app.modules.emotions.analytics import selected_samples
 from app.modules.emotions.model import EmotionSample
@@ -43,10 +44,7 @@ def update_log(meeting_id: str, sample_id: str, data: LogPatch, user: Teacher, d
 def delete_log(meeting_id: str, sample_id: str, user: Teacher, db: DB):
     """Owning teacher deletes an emotion sample, removing it from analytics."""
     sample = require_sample(db, meeting_id, sample_id, user)
-    if getattr(db, "is_mongo", False):
-        db.collection("emotion_samples").delete_one({"id": sample.id, "meeting_id": meeting_id})
-    else:
-        db.delete(sample)
+    db.collection("emotion_samples").delete_one({"id": sample.id, "meeting_id": meeting_id})
     db.commit()
     return ok(None)
 
@@ -77,9 +75,6 @@ def logs(
             "offset": offset,
             "limit": limit,
             "total": total,
-            "items": [
-                {column.name: getattr(sample, column.name) for column in sample.__table__.columns}
-                for sample in samples
-            ],
+            "items": [doc_from_model(sample) for sample in samples],
         }
     )

@@ -1,7 +1,6 @@
 import secrets
 
 from pymongo.errors import DuplicateKeyError
-from sqlalchemy.exc import IntegrityError
 
 from app.core.concurrency import meeting_operation
 from app.core.db import now
@@ -50,7 +49,7 @@ class MeetingService:
                 self.db.commit()
                 self.db.refresh(meeting)
                 return meeting
-            except (IntegrityError, DuplicateKeyError):
+            except DuplicateKeyError:
                 self.db.rollback()
         raise AppError(503, "CODE_UNAVAILABLE", "Unable to allocate meeting code")
 

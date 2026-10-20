@@ -1,45 +1,40 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import ClassVar
 
-from sqlalchemy import CheckConstraint, ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from app.core.db import Base, UTCDateTime, new_id, now
+from app.core.db import new_id, now
 from app.modules.auth.model import User
 
 
-class Meeting(Base):
-    __tablename__ = "meetings"
-    __table_args__ = (
-        CheckConstraint("status IN ('scheduled','ongoing','ended')", name="ck_meeting_status"),
-    )
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    code: Mapped[str] = mapped_column(String(12), unique=True)
-    teacher_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
-    student_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
-    mode: Mapped[str] = mapped_column(String(16), default="realtime", server_default="realtime")
-    status: Mapped[str] = mapped_column(String(16), default="ongoing")
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=now)
-    ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
-    participants: Mapped[list["Participant"]] = relationship(
-        lazy="selectin", cascade="all, delete-orphan"
-    )
+@dataclass(kw_only=True)
+class Meeting:
+    __collection__: ClassVar[str] = "meetings"
+    id: str = field(default_factory=new_id)
+    code: str
+    teacher_id: str
+    student_id: str | None = None
+    mode: str = "realtime"
+    status: str = "ongoing"
+    created_at: datetime = field(default_factory=now)
+    ended_at: datetime | None = None
+    participants: list[Participant] = field(default_factory=list, metadata={"persist": False})
 
     @property
     def student_ids(self):
         return sorted(p.user_id for p in self.participants if p.user_id != self.teacher_id)
 
 
-class Participant(Base):
-    __tablename__ = "participants"
-    __table_args__ = (CheckConstraint("status IN ('joined','left')", name="ck_participant_status"),)
-    meeting_id: Mapped[str] = mapped_column(
-        ForeignKey("meetings.id", ondelete="CASCADE"), primary_key=True
-    )
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
-    status: Mapped[str] = mapped_column(String(16), default="joined")
-    joined_at: Mapped[datetime] = mapped_column(UTCDateTime, default=now)
-    left_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
-    user: Mapped[User] = relationship(lazy="selectin")
+@dataclass(kw_only=True)
+class Participant:
+    __collection__: ClassVar[str] = "participants"
+    meeting_id: str
+    user_id: str
+    status: str = "joined"
+    joined_at: datetime = field(default_factory=now)
+    left_at: datetime | None = None
+    user: User | None = field(default=None, metadata={"persist": False})
 
     @property
     def full_name(self):

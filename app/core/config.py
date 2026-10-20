@@ -2,7 +2,6 @@ from functools import lru_cache
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy.engine import URL, make_url
 
 
 class Settings(BaseSettings):
@@ -10,46 +9,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     environment: str = "development"
-    mongo_uri: str = ""
-    database_url: str | None = None
-    sqlserver_server: str = r"localhost\SQLEXPRESS"
-    sqlserver_database: str = "face_emotion"
-    sqlserver_driver: str = "ODBC Driver 18 for SQL Server"
-    sqlserver_trusted_connection: bool = True
-    sqlserver_username: str = ""
-    sqlserver_password: SecretStr = SecretStr("")
-    sqlserver_encrypt: bool = True
-    sqlserver_trust_server_certificate: bool = False
-
-    @property
-    def sqlalchemy_url(self) -> URL:
-        """Build an ODBC URL without concatenating user/password into URI syntax."""
-        if self.database_url:
-            return make_url(self.database_url)
-
-        def quote(value: str) -> str:
-            # ODBC braced values escape closing braces; semicolons remain literal.
-            return "{" + value.replace("}", "}}") + "}"
-
-        parts = [
-            "DRIVER=" + quote(self.sqlserver_driver),
-            "SERVER=" + quote(self.sqlserver_server),
-            "DATABASE=" + quote(self.sqlserver_database),
-            "LongAsMax=yes",
-            "Encrypt=" + ("yes" if self.sqlserver_encrypt else "no"),
-            "TrustServerCertificate="
-            + ("yes" if self.sqlserver_trust_server_certificate else "no"),
-        ]
-        if self.sqlserver_trusted_connection:
-            parts.append("Trusted_Connection=yes")
-        else:
-            parts.extend(
-                [
-                    "UID=" + quote(self.sqlserver_username),
-                    "PWD=" + quote(self.sqlserver_password.get_secret_value()),
-                ]
-            )
-        return URL.create("mssql+pyodbc", query={"odbc_connect": ";".join(parts)})
+    mongo_uri: str = "mongodb://localhost:27017/face_emotion"
 
     jwt_secret: str = Field(min_length=32)
     jwt_issuer: str = "face-emotion"
@@ -90,15 +50,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_deployment(self):
-        if self.database_url and make_url(self.database_url).drivername not in {
-            "sqlite",
-            "mssql+pyodbc",
-        }:
-            raise ValueError("Only mssql+pyodbc and isolated SQLite tests are supported")
-        if not self.sqlserver_trusted_connection and (
-            not self.sqlserver_username or not self.sqlserver_password.get_secret_value()
-        ):
-            raise ValueError("SQL authentication requires username and password")
+        if not self.mongo_uri.startswith(("mongodb://", "mongodb+srv://")):
+            raise ValueError("MONGO_URI must use mongodb:// or mongodb+srv://")
         if self.ai_mode not in {"mock", "http"}:
             raise ValueError("AI_MODE must be mock or http")
         for server in self.ice_servers:

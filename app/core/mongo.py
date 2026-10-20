@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from copy import deepcopy
+from dataclasses import fields
 from urllib.parse import urlparse
 
 from pymongo import ASCENDING, MongoClient
@@ -20,7 +21,8 @@ def _database_name(uri: str) -> str:
 def model_from_doc(model, doc):
     if doc is None:
         return None
-    data = {key: value for key, value in doc.items() if key != "_id"}
+    names = {item.name for item in fields(model)}
+    data = {key: value for key, value in doc.items() if key in names}
     if model is EmotionSample:
         data.setdefault("face_detected", True)
         data.setdefault("logged", True)
@@ -35,14 +37,14 @@ def model_from_doc(model, doc):
 
 def doc_from_model(instance):
     return {
-        column.name: getattr(instance, column.name)
-        for column in instance.__table__.columns
-        if hasattr(instance, column.name)
+        item.name: getattr(instance, item.name)
+        for item in fields(instance)
+        if item.metadata.get("persist", True)
     }
 
 
 def collection_name(model):
-    return model.__tablename__
+    return model.__collection__
 
 
 def key_filter(instance):
@@ -60,6 +62,7 @@ class MongoSession:
         self.database = database
         self._tracked = []
         self._snapshots = {}
+        self._upserts = set()
 
     def __enter__(self):
         return self
@@ -69,10 +72,6 @@ class MongoSession:
 
     def collection(self, name):
         return self.database[name]
-
-    @property
-    def is_mongo(self):
-        return True
 
     def get(self, model, key):
         if model is User:
@@ -124,7 +123,7 @@ class MongoSession:
             )
         if "instance" not in locals():
             instance = model_from_doc(
-                model, self.collection(model.__tablename__).find_one({"id": key})
+                model, self.collection(collection_name(model)).find_one({"id": key})
             )
         if instance is not None:
             self._track(instance)
@@ -140,6 +139,7 @@ class MongoSession:
 
     def merge(self, instance):
         self.add(instance)
+        self._upserts.add(id(instance))
         self.flush()
         return instance
 
@@ -153,9 +153,15 @@ class MongoSession:
                 else {key: value for key, value in current.items() if previous.get(key) != value}
             )
             if changed:
-                self.collection(collection_name(type(instance))).update_one(
-                    key_filter(instance), {"$set": changed}, upsert=previous is None
-                )
+                collection = self.collection(collection_name(type(instance)))
+                if previous is None and id(instance) not in self._upserts:
+                    collection.insert_one(current)
+                else:
+                    collection.update_one(
+                        key_filter(instance),
+                        {"$set": changed},
+                        upsert=id(instance) in self._upserts,
+                    )
             self._snapshots[id(instance)] = deepcopy(current)
 
     def commit(self):
@@ -165,6 +171,7 @@ class MongoSession:
     def rollback(self):
         self._tracked.clear()
         self._snapshots.clear()
+        self._upserts.clear()
         return None
 
     def refresh(self, instance):
@@ -194,9 +201,15 @@ class MongoDatabase:
 
     def connect(self):
         if self.client is None:
-            self.client = MongoClient(self.uri, tz_aware=True)
-            self.database = self.client[_database_name(self.uri)]
-            self.ensure_indexes()
+            client = MongoClient(self.uri, tz_aware=True, serverSelectionTimeoutMS=5000)
+            self.database = client[_database_name(self.uri)]
+            try:
+                self.ensure_indexes()
+            except Exception:
+                client.close()
+                self.database = None
+                raise
+            self.client = client
         return self.database
 
     @contextmanager
@@ -206,12 +219,15 @@ class MongoDatabase:
     def close(self):
         if self.client is not None:
             self.client.close()
+            self.client = None
+            self.database = None
 
     def ping(self):
         self.connect()
         self.client.admin.command("ping")
 
     def ensure_indexes(self):
+        self.database.users.create_index([("id", ASCENDING)], unique=True)
         self.database.users.create_index([("email", ASCENDING)], unique=True)
         self.database.refresh_sessions.create_index([("jti", ASCENDING)], unique=True)
         self.database.refresh_sessions.create_index([("user_id", ASCENDING)])

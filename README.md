@@ -57,9 +57,11 @@ Worker cần chạy để job phân tích chuyển từ pending sang processing/
 | Realtime/AI/log | `pytest tests/test_classroom_features.py -k "frame or log or face or probability" -v` |
 | Video/lịch sử/worker | `pytest tests/test_classroom_features.py -k "after_session or worker" -v` |
 | Tài liệu | `pytest tests/test_classroom_features.py -k "material or pptx" -v` |
-| SQL migration | `pytest tests/test_migration.py -v` |
+| MongoDB persistence/index | `pytest tests/test_mongo_persistence.py -v` |
 
-Ứng dụng runtime dùng MongoDB qua `MONGO_URI`. Một số test và tài liệu legacy cho SQL Server vẫn còn trong repo để tham chiếu lịch sử, nhưng không còn là đường chạy mặc định của API/worker.
+API, worker và script quản trị chỉ dùng MongoDB qua `MONGO_URI`. Model dùng dataclass; không cần SQLAlchemy, Alembic hoặc ODBC. Test dùng MongoDB giả lập (mongomock).
+
+Kiểm tra kết nối và index bằng `.\.venv\Scripts\python.exe -m scripts.check_mongo`. Việc chuyển mã nguồn không tự sao chép dữ liệu từ database SQL cũ; nếu cần giữ dữ liệu, phải xuất/nhập và đối chiếu riêng.
 
 **Hướng dẫn chi tiết chạy và test thủ công từng task: `docs/RUN-AND-TEST.md`.**
 
@@ -100,6 +102,6 @@ Chưa có credential Cloudinary/AI thật trong repo; local có thể chạy v�
 - Upload tài liệu qua `/meetings/{id}/materials?filename=...`; xem danh sách và tải qua URL ký 5 phút.
 - Socket mới thay socket cũ cùng user. Refresh không tự leave. `ICE_SERVERS` được FE lấy qua `/meetings/{id}/ice-config`; cần FE và hạ tầng xác nhận TURN hoạt động.
 
-MongoDB tự bổ sung collection/index khi khởi động; meeting cũ mặc định realtime. Nếu dùng SQL Server, chạy `python -m alembic upgrade head` trước khi chạy API/worker. Frame request cũ cần bổ sung `frame_id` và `timestamp`; AI response cũ cần nâng cấp theo contract mới. Đổi cấu hình `FRAME_INTERVAL_SECONDS=1` cũ thành `0.3333333333333333` và `MAX_ROOM_CONNECTIONS=2` thành `100` nếu có override.
+MongoDB tự bổ sung collection/index khi kết nối lần đầu; meeting cũ mặc định realtime. Frame request cũ cần bổ sung `frame_id` và `timestamp`; AI response cũ cần nâng cấp theo contract mới. Đổi cấu hình `FRAME_INTERVAL_SECONDS=1` cũ thành `0.3333333333333333` và `MAX_ROOM_CONNECTIONS=2` thành `100` nếu có override.
 
-Cài dependency kiểm thử bằng `python -m pip install -e ".[test]"`. Các test mới trong `tests/test_classroom_features.py` chạy cả SQLite và MongoDB giả lập; `tests/test_migration.py` kiểm tra migration. Xem [API](docs/API.md) để tích hợp FE.
+Cài dependency kiểm thử bằng `python -m pip install -e ".[test]"`. Test chạy trên MongoDB giả lập; `tests/test_mongo_persistence.py` kiểm tra index và lưu trữ. Xem [API](docs/API.md) để tích hợp FE.

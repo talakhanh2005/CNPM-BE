@@ -1,8 +1,8 @@
 from functools import wraps
 from threading import RLock
 
-# The signaling deployment uses one API process. SQL row locks / Mongo CAS additionally
-# protect slot assignment; these locks serialize local membership changes with frame saves.
+# The signaling deployment uses one API process. These locks serialize local
+# membership changes with frame saves; worker leases use MongoDB conditional updates.
 _meeting_locks = [RLock() for _ in range(128)]
 
 

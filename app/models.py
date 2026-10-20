@@ -1,4 +1,4 @@
-"""Import all tables for Alembic; importing app does not create or mutate a database."""
+"""Public document model exports; importing models never connects to MongoDB."""
 
 from app.modules.analysis.model import AnalysisJob, AnalysisResult
 from app.modules.auth.model import RefreshSession, User

@@ -4,7 +4,6 @@ import argparse
 from getpass import getpass
 
 from app.core.config import get_settings
-from app.core.db import make_database
 from app.core.mongo import make_mongo_database
 from app.core.security import hash_password
 from app.modules.auth.repository import AuthRepository
@@ -20,10 +19,7 @@ def main():
     if credentials.password != getpass("Confirm password: "):
         raise SystemExit("Passwords do not match")
     settings = get_settings()
-    if settings.mongo_uri:
-        database, factory = make_mongo_database(settings.mongo_uri)
-    else:
-        database, factory = make_database(settings.sqlalchemy_url)
+    database, factory = make_mongo_database(settings.mongo_uri)
     try:
         with factory() as db:
             repo = AuthRepository(db)
@@ -38,10 +34,7 @@ def main():
             db.commit()
         print("Admin created")
     finally:
-        if settings.mongo_uri:
-            database.close()
-        else:
-            database.dispose()
+        database.close()
 
 
 if __name__ == "__main__":

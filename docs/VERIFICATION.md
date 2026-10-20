@@ -1,22 +1,24 @@
-# Kiểm chứng tính năng phòng học
+# Kiểm chứng bản chuyển MongoDB
 
-Ngày: 25/09/2026, Windows, Python trong `.venv` của dự án.
+Ngày kiểm tra: 20/10/2026.
 
-- `python -m pytest -q`: **39 passed**, 2 cảnh báo deprecation từ Starlette/httpx/anyio.
-- Test nghiệp vụ chạy trên SQLite và MongoDB giả lập (mongomock), không cần database thật.
-- Bao gồm: join đồng thời chỉ một student thắng; slot được giữ sau leave; phân quyền frame; log đổi trạng thái/90 giây; kết quả đến muộn; AI lỗi/không thấy mặt; report loại fail_detection khỏi phân bố; REST/WS chung limiter; nhận 3 FPS; frame lớn hơn 64 KiB; socket mới thay socket cũ cả khác phòng; signaling trong khi AI chậm; end trong khi AI xử lý; video tự enqueue; worker phục hồi video thiếu job; lịch sử theo owner; PDF/PPTX và quyền tải; ICE config theo membership.
-- Migration được kiểm tra từ revision cũ sang head trên SQLite có sẵn user/meeting/participant; dữ liệu được giữ nguyên.
-- OpenAPI, JSON schema WebSocket và DDL SQL Server đã xuất lại từ code.
+Kết quả: 49 test đạt; Ruff check và format cho app/scripts đạt. Số test giảm so với bộ cũ vì bỏ lượt chạy SQLite và test migration SQL; các test nghiệp vụ tiếp tục chạy trên MongoDB giả lập.
 
-AI HTTP được kiểm tra contract qua httpx MockTransport. Cloudinary upload/download dùng adapter giả lập trong test; chưa upload thật. SQL Server DDL đã biên dịch offline, chưa chạy trên SQL Server thật. MongoDB giả lập không thay thế kiểm thử production MongoDB.
+- API, worker và create_admin chỉ sử dụng MongoDB.
+- Model lưu trữ dùng dataclass; bỏ phụ thuộc SQLAlchemy, Alembic và pyodbc.
+- Kiểm thử nghiệp vụ dùng mongomock, mock AI và storage; giữ timezone và unique index.
+- Kiểm tra các luồng auth, refresh, phòng nhiều học sinh, signaling, tài liệu, video, worker, dashboard, callback, báo cáo và admin.
+- Kiểm tra ID/email trùng không ghi đè, merge kết quả phân tích, rollback thay đổi chưa flush, model legacy và thuộc tính quan hệ không lưu lồng.
+- Không tự chuyển dữ liệu từ SQL sang MongoDB.
 
-Người dùng xác nhận FE chưa có hoặc chưa kiểm tra STUN/TURN. Backend có endpoint `/meetings/{id}/ice-config`; FE cần dùng iceServers khi tạo RTCPeerConnection và kiểm chứng TURN trên hai mạng khác nhau. Chưa kiểm thử browser media/TURN end-to-end. FE cũng cần ghi và upload video cho mode after_session; backend không nhận luồng media qua signaling.
-
-Chạy lại:
+Lệnh kiểm tra:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[test]"
 .\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m ruff check app tests scripts alembic
-.\.venv\Scripts\python.exe -m ruff format --check app tests scripts alembic
+.\.venv\Scripts\python.exe -m ruff check app scripts
+.\.venv\Scripts\python.exe -m ruff format --check app scripts
 ```
+
+Chưa xác minh kết nối MongoDB/Atlas thật, upload Cloudinary thật hoặc AI production trong lần chuyển đổi này. mongomock không mô phỏng đầy đủ concurrency, transaction và lỗi mạng.
+
+MongoSession không cung cấp transaction nhiều document. rollback không hoàn tác ghi đã flush; xem ARCHITECTURE.md. Các báo cáo kiểm chứng cũ trong repo ghi nhận trạng thái tại thời điểm viết và có thể còn nhắc tới bản SQL trước đây.
