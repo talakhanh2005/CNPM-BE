@@ -17,7 +17,10 @@ class ConnectionManager:
 
     async def connect(self, room, socket, user):
         members = [c for c in self.repo.members(room) if c.user_id != user.id]
-        if len(members) >= self.max_room_connections:
+        # BE Tiền: one teacher socket per room; the owner check lives in MeetingService.
+        if len(members) >= self.max_room_connections or (
+            user.role == "teacher" and any(c.role == "teacher" for c in members)
+        ):
             raise AppError(429, "ROOM_FULL", "Room connection limit reached")
         previous = self.users.get(user.id)
         connection = Connection(socket, user.id, user.role, user.full_name, room)

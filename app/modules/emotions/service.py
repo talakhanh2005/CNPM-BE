@@ -12,6 +12,7 @@ from app.core.db import now
 from app.core.errors import AppError
 from app.core.schemas import ok
 from app.integrations.ai_schema import FrameResult
+from app.modules.emotions.analytics import realtime_summary
 from app.modules.emotions.repository import EmotionRepository
 from app.modules.meetings.service import MeetingService
 
@@ -54,6 +55,8 @@ class EmotionService:
             # Recheck after AI latency so results cannot be stored after meeting end/leave.
             MeetingService(db).require(meeting_id, user, active=True, lock=True)
             repo = EmotionRepository(db)
+            if repo.by_frame(meeting_id, user.id, result.frame_id):
+                raise AppError(409, "DUPLICATE_FRAME", "Frame already persisted")
             latest = repo.latest(meeting_id, user.id)
             previous = repo.latest(meeting_id, user.id, logged=True)
             fresh = latest is None or received_at > (latest.received_at or latest.timestamp)
@@ -111,4 +114,13 @@ async def process_frame(state, meeting_id, user, data, is_current=None):
     }
     teacher = state.manager.repo.get(meeting_id, teacher_id)
     delivered = bool(logged and teacher and await state.manager.send(teacher, ok(event)))
+    if teacher:
+        # BE Tiền: rolling EMOTION_AGGREGATE for the teacher; skipped when nobody listens.
+        aggregate = await run_in_threadpool(
+            realtime_summary,
+            state.session_factory,
+            meeting_id,
+            state.settings.emotion_aggregation_window_seconds,
+        )
+        await state.manager.broadcast(meeting_id, aggregate, role="teacher")
     return {**event, "delivered_to_teacher": delivered}

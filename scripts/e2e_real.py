@@ -80,6 +80,8 @@ def main():
     teacher, student, outsider = (
         register("teacher", "teacher"), register("student", "student"), register("student", "other"),
     )
+    # Uploads name the student whose camera the video is (merged from BE Tiền).
+    student_id = c.get("/auth/me", headers=student).json()["data"]["id"]
 
     # ---- REALTIME meeting ------------------------------------------------------------------
     rt = c.post("/meetings", json={"mode": "realtime"}, headers=teacher).json()["data"]["id"]
@@ -121,7 +123,8 @@ def main():
     r = c.post(f"/meetings/{rt}/chat", json={"question": "Khi nao buon?"}, headers=teacher)
     check("TU-05", "realtime meeting has no chat (409)", r.status_code == 409, str(r.status_code))
     video = make_video()
-    r = c.post(f"/meetings/{rt}/recordings", content=video, headers={**teacher, "Content-Type": "video/mp4"})
+    r = c.post(f"/meetings/{rt}/recordings", params={"student_id": student_id}, content=video,
+               headers={**teacher, "Content-Type": "video/mp4"})
     check("T02", "realtime meeting rejects video upload (409)", r.status_code == 409 and code(r) == "INVALID_MEETING_MODE",
           f"got {r.status_code}" + (" -> asset created in Cloudinary!" if r.status_code == 201 else ""))
     r = c.post(f"/meetings/{rt}/recording", json={"durationSeconds": 60}, headers=teacher)
@@ -139,7 +142,8 @@ def main():
     r = c.get(f"/meetings/{ps}/emotions/timeline", headers=teacher)
     check("T06", "timeline before any recording -> 409 ANALYSIS_NOT_READY/NO_RECORDING",
           r.status_code == 409 and code(r) == "ANALYSIS_NOT_READY", f"{r.status_code} {code(r)}")
-    r = c.post(f"/meetings/{ps}/recordings", content=video, headers={**teacher, "Content-Type": "video/mp4"})
+    r = c.post(f"/meetings/{ps}/recordings", params={"student_id": student_id}, content=video,
+               headers={**teacher, "Content-Type": "video/mp4"})
     ok = r.status_code == 201
     check("T03", "teacher uploads 30s video to real Cloudinary", ok, f"{r.status_code} {r.text[:150] if not ok else ''}")
     if not ok:

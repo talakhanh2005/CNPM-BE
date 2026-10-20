@@ -66,6 +66,7 @@ def recorded_meeting(env, ai=None, process=True):
     env.client.post(f"/meetings/{room}/join", headers=env.headers["student"])
     response = env.client.post(
         f"/meetings/{room}/recordings",
+        params={"student_id": "student"},
         content=VIDEO,
         headers={**teacher, "Content-Type": "video/mp4"},
     )

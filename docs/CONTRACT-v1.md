@@ -63,7 +63,12 @@ Trạng thái: **Có** = chạy trong code hiện tại; **Mới (Tú)** = thêm
 | GET | `/meetings/lookup?code=` | Tú | **Mới (16/10)** | Kiểm tra mã phòng không join: 200 / 404 `MEETING_NOT_FOUND` / 409 `MEETING_NOT_ACTIVE` / 403. FE gọi trước khi mở phòng chờ (U09) |
 | GET | `/meetings/{id}` | Tiền | Có | Trả `mode`, `status` |
 | PUT (README: PATCH) | `/meetings/{id}` | Tiền | Có | Sửa name/description/tags. Tiền chốt PUT hay PATCH; chặn đổi mode sau khi bắt đầu (hiện mode không sửa được) |
-| DELETE | `/meetings/{id}` | Tiền | Có | Xoá mềm |
+| DELETE | `/meetings/{id}` | Tiền | Có | Xoá mềm; đóng socket của phòng (gộp BE Tiền 20/10) |
+| GET | `/meetings/{id}/dashboard`, `/summary` | Tiền | **Có (20/10)** | Thống kê realtime: phân bố, độ tin cậy TB, xu hướng theo `bucket_seconds`, lọc `student_id`/`start`/`end` |
+| PATCH / DELETE | `/meetings/{id}/emotion-logs/{sample_id}` | Tiền | **Có (20/10)** | PATCH chỉ đổi `logged`; DELETE xoá sample khỏi thống kê. `GET /emotion-logs` thêm `start`, `end`, `total` |
+| GET | `/recordings/{id}/report` | Tiền | **Có (20/10)** | Report riêng một recording (= `/analysis`), có `student_id` lấy từ recording |
+| GET | `/admin/users`, `/admin/meetings` | Tiền | **Có (20/10)** | Chỉ admin, phân trang `offset`/`limit` |
+| Internal | `POST /internal/emotions` | Tiền | **Có (20/10)** | Callback AI tuỳ chọn, header `X-AI-Key` = `INTERNAL_AI_KEY` (rỗng = tắt) |
 | POST | `/meetings/{id}/end` | Tiền | Có | Idempotent; WS phát `MEETING_ENDED` |
 | POST | `/meetings/{id}/recordings` (upload raw), `/recording`, `/recording-file`, `/media/signed-upload` (kèm `meeting_id`) | Tiền | Có | Realtime → 409 `INVALID_MEETING_MODE` (T02, đã chặn ở BE từ 16/10) |
 | POST | `/meetings/{id}/recordings/upload-signature`, `/confirm` | Tiền | Chưa có | BE-TIEN-05; hiện có `/media/signed-upload` dùng chung |
@@ -302,3 +307,4 @@ Ghi lại segment của một recording luôn **xoá rồi ghi lại toàn bộ*
 | 16/10/2026 | **v1 (chốt)** | Chốt contract v1 cho cả nhóm. Thêm: chặn mode `realtime` ở mọi đường lưu video (`/recordings`, `/recording`, `/recording-file`, `/media/signed-upload` với `meeting_id`) → 409 `INVALID_MEETING_MODE`; FE nối `/emotions/infer`, `/emotions/timeline`, `/chat`; bỏ `AI_MODE=mock`, dữ liệu nằm hoàn toàn trên MongoDB + Cloudinary | Tú |
 | 16/10/2026 | v1.1 | `GET /meetings/{id}/report` trả 409 `INVALID_MEETING_MODE` cho `realtime`; `POST /meetings/{id}/recording` trả 409 `RECORDING_NOT_UPLOADED` khi chưa có video; frame base64 vượt giới hạn trả 413 `FRAME_TOO_LARGE`; AI luôn trả `model_version` (mặc định = tên file checkpoint, đặt bằng `AI_MODEL_VERSION`). Không đổi wire enum (D1) | Tú |
 | 16/10/2026 | v1.2 | Thêm `GET /meetings/lookup?code=` (U09: mã sai không được vào màn hình phòng học). Frame quá lớn luôn trả 413 `FRAME_TOO_LARGE` (A41): body vượt giới hạn được đọc bỏ rồi mới trả lời, nên proxy dev không còn báo 502 | Tú |
+| 20/10/2026 | v1.3 | **Gộp BE của Tiền (nhánh `page-4`) vào BE2.** Thêm: dashboard/summary realtime, PATCH/DELETE emotion log, lọc `start`/`end` + `total` cho log, `/recordings/{id}/report`, admin, callback `/internal/emotions` + WS `EMOTION_AGGREGATE` (chỉ gửi khi giáo viên đang online), `student_ids` trong meeting, chặn giáo viên thứ hai mở socket, chống frame trùng (409 `DUPLICATE_FRAME`). **Breaking:** `POST /meetings/{id}/recordings` bắt buộc `?student_id=` (học sinh có membership; thiếu → 422 `STUDENT_REQUIRED`, sai → 422 `INVALID_STUDENT`), kiểm tra **sau** chặn mode nên realtime vẫn 409; `/meetings/{id}/report` mặc định `source=batch`, `student_id` lọc theo recording của học sinh. Giữ xoá mềm thay cho xoá cứng của BE Tiền (README yêu cầu soft-delete). `/ready` không còn trả thông điệp lỗi của driver | Tú |

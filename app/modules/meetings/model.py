@@ -50,3 +50,8 @@ class Meeting(Document):
     failed_reason: str | None = None
     # Loaded from the participants collection; embedded copies are never written back.
     participants: list = not_stored(list)
+
+    @property
+    def student_ids(self):
+        """Every student membership, including students who already left (BE Tiền)."""
+        return sorted(p.user_id for p in self.participants if p.user_id != self.teacher_id)

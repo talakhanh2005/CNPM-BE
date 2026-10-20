@@ -1,6 +1,6 @@
 import asyncio
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from app.core.dependencies import DB, Teacher
@@ -27,12 +27,24 @@ router = APIRouter(tags=["BE-04 Recordings"])
         }
     },
 )
-async def upload(meeting_id: str, request: Request, user: Teacher, db: DB):
-    """Upload a raw video body (not multipart). RAM-only buffering with hard limits."""
+async def upload(
+    meeting_id: str,
+    request: Request,
+    user: Teacher,
+    db: DB,
+    student_id: str | None = Query(None, min_length=1, max_length=36),
+):
+    """Upload one student's camera as a raw video body, identified by ``student_id``.
+
+    ``student_id`` is required (BE Tiền); it is checked after the mode so a realtime meeting
+    always answers 409 INVALID_MEETING_MODE (T02), and before the body is read.
+    """
     state = request.app.state
     meeting = await run_in_threadpool(MeetingService(db).require, meeting_id, user, True)
     # Reject realtime meetings before the body is read, so nothing reaches Cloudinary (T02).
     MeetingService.require_recording_mode(meeting)
+    service = RecordingService(db, state.storage, state.settings)
+    await run_in_threadpool(service.require_student, meeting, student_id)
     await run_in_threadpool(db.commit)
     mime = request.headers.get("content-type", "").split(";")[0].strip().lower()
     if mime not in {"video/mp4", "video/webm", "video/quicktime"}:
@@ -61,8 +73,9 @@ async def upload(meeting_id: str, request: Request, user: Teacher, db: DB):
                     data.extend(chunk)
         except TimeoutError as exc:
             raise AppError(408, "UPLOAD_TIMEOUT", "Request video stream timed out") from exc
-        service = RecordingService(db, state.storage, state.settings)
-        recording = await run_in_threadpool(service.upload, meeting_id, user, bytes(data), mime)
+        recording = await run_in_threadpool(
+            service.upload, meeting_id, user, bytes(data), mime, student_id
+        )
         return ok(recording, "Recording uploaded")
 
 

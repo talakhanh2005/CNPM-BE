@@ -64,6 +64,9 @@ class MongoSession:
         self.database = database
         self._tracked = []
         self._snapshots = {}
+        # Instances passed to merge(): upsert. New add() instances are inserted, so a
+        # duplicate key raises instead of silently overwriting an existing document.
+        self._upserts = set()
 
     def __enter__(self):
         return self
@@ -100,6 +103,7 @@ class MongoSession:
 
     def merge(self, instance):
         self.add(instance)
+        self._upserts.add(id(instance))
         self.flush()
         return instance
 
@@ -113,9 +117,15 @@ class MongoSession:
                 else {key: value for key, value in current.items() if previous.get(key) != value}
             )
             if changed:
-                self.collection(collection_name(type(instance))).update_one(
-                    key_filter(instance), {"$set": changed}, upsert=previous is None
-                )
+                collection = self.collection(collection_name(type(instance)))
+                if previous is None and id(instance) not in self._upserts:
+                    collection.insert_one(dict(current))
+                else:
+                    collection.update_one(
+                        key_filter(instance),
+                        {"$set": changed},
+                        upsert=id(instance) in self._upserts,
+                    )
             self._snapshots[id(instance)] = deepcopy(current)
 
     def commit(self):
@@ -124,6 +134,7 @@ class MongoSession:
     def rollback(self):
         self._tracked.clear()
         self._snapshots.clear()
+        self._upserts.clear()
 
     def refresh(self, instance):
         values = tuple(key_filter(instance).values())
@@ -148,9 +159,16 @@ class MongoDatabase:
 
     def connect(self):
         if self.client is None:
-            self.client = MongoClient(self.uri, tz_aware=True)
-            self.database = self.client[_database_name(self.uri)]
-            self.ensure_indexes()
+            client = MongoClient(self.uri, tz_aware=True, serverSelectionTimeoutMS=5000)
+            self.database = client[_database_name(self.uri)]
+            try:
+                self.ensure_indexes()
+            except Exception:
+                # Do not keep a half-initialised client; the next call retries.
+                client.close()
+                self.database = None
+                raise
+            self.client = client
         return self.database
 
     @contextmanager
@@ -160,12 +178,15 @@ class MongoDatabase:
     def close(self):
         if self.client is not None:
             self.client.close()
+            self.client = None
+            self.database = None
 
     def ping(self):
         self.connect()
         self.client.admin.command("ping")
 
     def ensure_indexes(self):
+        self.database.users.create_index([("id", ASCENDING)], unique=True)
         self.database.users.create_index([("email", ASCENDING)], unique=True)
         self.database.refresh_sessions.create_index([("jti", ASCENDING)], unique=True)
         self.database.refresh_sessions.create_index([("user_id", ASCENDING)])
@@ -177,6 +198,7 @@ class MongoDatabase:
         )
         self.database.recordings.create_index([("id", ASCENDING)], unique=True)
         self.database.recordings.create_index([("meeting_id", ASCENDING)])
+        self.database.recordings.create_index([("student_id", ASCENDING)])
         self.database.recordings.create_index([("public_id", ASCENDING)], unique=True)
         self.database.recordings.create_index([("status", ASCENDING)])
         self.database.analysis_jobs.create_index([("id", ASCENDING)], unique=True)
@@ -188,6 +210,10 @@ class MongoDatabase:
             [("meeting_id", ASCENDING), ("timestamp", ASCENDING)]
         )
         self.database.emotion_samples.create_index([("student_id", ASCENDING)])
+        # Duplicate-frame lookup (meeting, student, frame_id); not unique so legacy rows load.
+        self.database.emotion_samples.create_index(
+            [("meeting_id", ASCENDING), ("student_id", ASCENDING), ("frame_id", ASCENDING)]
+        )
         self.database.emotion_samples.create_index(
             [
                 ("meeting_id", ASCENDING),

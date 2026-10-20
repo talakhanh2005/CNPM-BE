@@ -16,12 +16,14 @@ from app.core.request_id import RequestIdMiddleware
 from app.core.schemas import Envelope, ErrorEnvelope, ok
 from app.integrations.ai import build_ai
 from app.integrations.storage import CloudinaryStorage
+from app.modules.admin.router import router as admin_router
 from app.modules.analysis.router import router as analysis_router
 from app.modules.auth.router import router as auth_router
 from app.modules.auth.service import AuthService
 from app.modules.chat.llm import build_intent_parser
 from app.modules.chat.router import router as chat_router
 from app.modules.emotion_labels.router import router as emotion_labels_router
+from app.modules.emotions.internal import router as internal_router
 from app.modules.emotions.router import router as emotions_router
 from app.modules.materials.router import router as materials_router
 from app.modules.materials.router import share_router
@@ -156,6 +158,8 @@ def create_app(settings=None, session_factory=None, ai=None, storage=None):
         v1_auth_router,
         users_router,
         emotion_labels_router,
+        admin_router,
+        internal_router,
     ]:
         app.include_router(router, responses=errors)
 
@@ -182,11 +186,13 @@ def create_app(settings=None, session_factory=None, ai=None, storage=None):
             try:
                 database.ping()
             except Exception as exc:
+                # The driver message can contain hosts or credentials; log it, return the type.
+                logger.warning("Readiness check failed: %s", exc)
                 raise AppError(
                     503,
                     "DATABASE_UNAVAILABLE",
                     "Database is not ready",
-                    [{"type": exc.__class__.__name__, "msg": str(exc), "database": "mongodb"}],
+                    [{"type": exc.__class__.__name__, "database": "mongodb"}],
                 ) from exc
             return ok({"database": "ok", "driver": "mongodb"})
         return ok({"database": "ok", "driver": driver})

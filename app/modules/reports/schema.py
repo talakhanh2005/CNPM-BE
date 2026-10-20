@@ -22,6 +22,9 @@ class ReportPoint(BaseModel):
 
 
 class ReportOut(BaseModel):
+    meeting_id: str | None = None
+    recording_id: str | None = None
+    student_id: str | None = None
     distribution: dict[Emotion, float]
     sample_counts: dict[Emotion, int]
     sample_count: int

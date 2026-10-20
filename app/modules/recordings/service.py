@@ -1,5 +1,6 @@
 from app.core.db import new_id
 from app.core.errors import AppError
+from app.modules.auth.model import User
 from app.modules.meetings.service import MeetingService
 from app.modules.recordings.repository import RecordingRepository
 
@@ -20,11 +21,22 @@ class RecordingService:
         MeetingService(self.db).require(recording.meeting_id, user, owner=True)
         return recording
 
-    def upload(self, meeting_id, user, data, content_type):
+    def require_student(self, meeting, student_id):
+        """Each recording is one student's camera: a student member of the meeting (BE Tiền)."""
+        if student_id is None:
+            raise AppError(
+                422, "STUDENT_REQUIRED", "Specify student_id for the student's camera recording"
+            )
+        student = self.db.get(User, student_id)
+        if student_id not in meeting.student_ids or student is None or student.role != "student":
+            raise AppError(422, "INVALID_STUDENT", "Student must belong to this meeting")
+
+    def upload(self, meeting_id, user, data, content_type, student_id=None):
         meeting = MeetingService(self.db).require(meeting_id, user, owner=True)
         MeetingService.require_recording_mode(meeting)
         if meeting.status == "scheduled":
             raise AppError(409, "MEETING_NOT_STARTED", "Cannot record a scheduled meeting")
+        self.require_student(meeting, student_id)
         if not data:
             raise AppError(422, "EMPTY_VIDEO", "Video body is empty")
         if len(data) > self.settings.max_upload_bytes:
@@ -39,7 +51,7 @@ class RecordingService:
             raise AppError(415, "UNSUPPORTED_VIDEO", "Expected an MP4, MOV or WebM video body")
         recording_id = new_id()
         public_id = f"face-emotion/{meeting_id}/{recording_id}"
-        # Release SQL transaction before the remote upload.
+        # Persist pending changes before the remote upload.
         self.db.commit()
         asset = self.storage.upload(data, public_id)
         try:
@@ -48,6 +60,7 @@ class RecordingService:
             recording = self.repo.add(
                 id=recording_id,
                 meeting_id=meeting_id,
+                student_id=student_id,
                 cloudinary_url=asset.url,
                 public_id=asset.public_id,
                 format=asset.format,

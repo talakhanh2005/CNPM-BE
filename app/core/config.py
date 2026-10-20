@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     # One teacher plus students; mesh WebRTC, so keep it small.
     max_room_connections: int = Field(default=30, ge=2, le=100)
     max_documents_per_meeting: int = Field(default=100, ge=1)
+    # Merged from BE Tiền: realtime aggregate window sent to the teacher (EMOTION_AGGREGATE).
+    emotion_aggregation_window_seconds: int = Field(default=30, ge=1, le=3600)
+    # Merged from BE Tiền: X-AI-Key for POST /internal/emotions; empty disables the callback.
+    internal_ai_key: SecretStr = SecretStr("")
 
     @property
     def teacher_email_whitelist_list(self) -> list[str]:

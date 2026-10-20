@@ -213,6 +213,7 @@ def test_after_session_upload_auto_analysis_and_history(env, frame_data):
     env.client.post(f"/meetings/{room}/end", headers=env.headers["teacher"])
     response = env.client.post(
         f"/meetings/{room}/recordings",
+        params={"student_id": "student"},
         content=b"\x00\x00\x00\x20ftypisom",
         headers={**env.headers["teacher"], "Content-Type": "video/mp4"},
     )

@@ -28,7 +28,7 @@ class FrameOut(FrameResult):
     received_at: datetime
     logged: bool
     delivered_to_teacher: bool = Field(
-        description="Best-effort socket delivery; SQL record is authoritative"
+        description="Best-effort socket delivery; MongoDB document is authoritative"
     )
 
 
@@ -51,6 +51,7 @@ class EmotionLogOut(ORMModel):
 
 
 class EmotionLogsOut(BaseModel):
+    total: int
     offset: int
     limit: int
     items: list[EmotionLogOut]

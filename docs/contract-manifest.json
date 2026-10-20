@@ -1,0 +1,10 @@
+{
+  "version": "1.2.0",
+  "candidate": true,
+  "sha256": {
+    "openapi.json": "5a98ee650647697955b1708d8e70efecfcb25d836639677c23903b05e37c1dd5",
+    "websocket-auth.schema.json": "faac3841caaa51f6b192773d00e4ff4af6e85dd03ac67cd2987a497badfdf6c2",
+    "websocket-client.schema.json": "d8de98791cbc29058101248c6e6b4d6f2cece5ecf375636d3097804922d2f620",
+    "emotion-aggregate.schema.json": "7b97e6260a7dc984b9610b9d2ec2900a16e1310e8850375513bba8788658baaf"
+  }
+}

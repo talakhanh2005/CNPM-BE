@@ -15,6 +15,14 @@ class EmotionRepository:
         self.db.flush()
         return sample
 
+    def by_frame(self, meeting_id, student_id, frame_id):
+        return model_from_doc(
+            EmotionSample,
+            self.db.collection("emotion_samples").find_one(
+                {"meeting_id": meeting_id, "student_id": student_id, "frame_id": frame_id}
+            ),
+        )
+
     def latest(self, meeting_id, student_id, logged=False):
         query = {"meeting_id": meeting_id, "student_id": student_id}
         if logged:
@@ -26,15 +34,7 @@ class EmotionRepository:
             ),
         )
 
-    def logs(self, meeting_id, offset, limit, student_id=None):
-        query = {"meeting_id": meeting_id, "logged": {"$ne": False}}
-        if student_id:
-            query["student_id"] = student_id
-        return [
-            model_from_doc(EmotionSample, doc)
-            for doc in self.db.collection("emotion_samples")
-            .find(query)
-            .sort([("received_at", 1), ("id", 1)])
-            .skip(offset)
-            .limit(limit)
-        ]
+    def delete(self, meeting_id, sample_id):
+        self.db.collection("emotion_samples").delete_one(
+            {"id": sample_id, "meeting_id": meeting_id}
+        )

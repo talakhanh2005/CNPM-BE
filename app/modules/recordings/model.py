@@ -10,6 +10,8 @@ class Recording(Document):
     __collection__: ClassVar[str] = "recordings"
     id: str | None = None
     meeting_id: str | None = None
+    # Student whose camera this video is (BE Tiền); null for recordings uploaded before.
+    student_id: str | None = None
     cloudinary_url: str | None = None
     public_id: str | None = None
     format: str | None = None

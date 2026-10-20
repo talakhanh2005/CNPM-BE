@@ -316,6 +316,7 @@ def meeting_out(db, meeting):
         "code": meeting.code,
         "teacher_id": meeting.teacher_id,
         "student_id": meeting.student_id,
+        "student_ids": meeting.student_ids,
         "mode": meeting.mode or "realtime",
         "status": meeting.status,
         "created_at": meeting.created_at,

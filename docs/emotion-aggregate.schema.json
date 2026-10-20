@@ -1,0 +1,368 @@
+{
+  "$defs": {
+    "AggregateOut": {
+      "properties": {
+        "sample_count": {
+          "title": "Sample Count",
+          "type": "integer"
+        },
+        "total_samples": {
+          "title": "Total Samples",
+          "type": "integer"
+        },
+        "failed_samples": {
+          "title": "Failed Samples",
+          "type": "integer"
+        },
+        "sample_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Sample Counts",
+          "type": "object"
+        },
+        "distribution": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Distribution",
+          "type": "object"
+        },
+        "average_confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Average Confidence"
+        },
+        "average_probabilities": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Average Probabilities",
+          "type": "object"
+        },
+        "positive_ratio": {
+          "title": "Positive Ratio",
+          "type": "number"
+        },
+        "negative_ratio": {
+          "title": "Negative Ratio",
+          "type": "number"
+        },
+        "neutral_ratio": {
+          "title": "Neutral Ratio",
+          "type": "number"
+        },
+        "positive_negative_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Positive Negative Ratio"
+        },
+        "meeting_id": {
+          "title": "Meeting Id",
+          "type": "string"
+        },
+        "student_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Student Id"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Start"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "End"
+        },
+        "bucket_seconds": {
+          "title": "Bucket Seconds",
+          "type": "integer"
+        },
+        "students": {
+          "items": {
+            "$ref": "#/$defs/StudentMetrics"
+          },
+          "title": "Students",
+          "type": "array"
+        },
+        "trend": {
+          "items": {
+            "$ref": "#/$defs/TrendMetrics"
+          },
+          "title": "Trend",
+          "type": "array"
+        },
+        "type": {
+          "const": "EMOTION_AGGREGATE",
+          "default": "EMOTION_AGGREGATE",
+          "title": "Type",
+          "type": "string"
+        },
+        "window_seconds": {
+          "title": "Window Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sample_count",
+        "total_samples",
+        "failed_samples",
+        "sample_counts",
+        "distribution",
+        "average_confidence",
+        "average_probabilities",
+        "positive_ratio",
+        "negative_ratio",
+        "neutral_ratio",
+        "positive_negative_ratio",
+        "meeting_id",
+        "student_id",
+        "start",
+        "end",
+        "bucket_seconds",
+        "students",
+        "trend",
+        "window_seconds"
+      ],
+      "title": "AggregateOut",
+      "type": "object"
+    },
+    "StudentMetrics": {
+      "properties": {
+        "sample_count": {
+          "title": "Sample Count",
+          "type": "integer"
+        },
+        "total_samples": {
+          "title": "Total Samples",
+          "type": "integer"
+        },
+        "failed_samples": {
+          "title": "Failed Samples",
+          "type": "integer"
+        },
+        "sample_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Sample Counts",
+          "type": "object"
+        },
+        "distribution": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Distribution",
+          "type": "object"
+        },
+        "average_confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Average Confidence"
+        },
+        "average_probabilities": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Average Probabilities",
+          "type": "object"
+        },
+        "positive_ratio": {
+          "title": "Positive Ratio",
+          "type": "number"
+        },
+        "negative_ratio": {
+          "title": "Negative Ratio",
+          "type": "number"
+        },
+        "neutral_ratio": {
+          "title": "Neutral Ratio",
+          "type": "number"
+        },
+        "positive_negative_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Positive Negative Ratio"
+        },
+        "student_id": {
+          "title": "Student Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sample_count",
+        "total_samples",
+        "failed_samples",
+        "sample_counts",
+        "distribution",
+        "average_confidence",
+        "average_probabilities",
+        "positive_ratio",
+        "negative_ratio",
+        "neutral_ratio",
+        "positive_negative_ratio",
+        "student_id"
+      ],
+      "title": "StudentMetrics",
+      "type": "object"
+    },
+    "TrendMetrics": {
+      "properties": {
+        "sample_count": {
+          "title": "Sample Count",
+          "type": "integer"
+        },
+        "total_samples": {
+          "title": "Total Samples",
+          "type": "integer"
+        },
+        "failed_samples": {
+          "title": "Failed Samples",
+          "type": "integer"
+        },
+        "sample_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Sample Counts",
+          "type": "object"
+        },
+        "distribution": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Distribution",
+          "type": "object"
+        },
+        "average_confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Average Confidence"
+        },
+        "average_probabilities": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Average Probabilities",
+          "type": "object"
+        },
+        "positive_ratio": {
+          "title": "Positive Ratio",
+          "type": "number"
+        },
+        "negative_ratio": {
+          "title": "Negative Ratio",
+          "type": "number"
+        },
+        "neutral_ratio": {
+          "title": "Neutral Ratio",
+          "type": "number"
+        },
+        "positive_negative_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Positive Negative Ratio"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sample_count",
+        "total_samples",
+        "failed_samples",
+        "sample_counts",
+        "distribution",
+        "average_confidence",
+        "average_probabilities",
+        "positive_ratio",
+        "negative_ratio",
+        "neutral_ratio",
+        "positive_negative_ratio",
+        "timestamp"
+      ],
+      "title": "TrendMetrics",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "success": {
+      "default": true,
+      "title": "Success",
+      "type": "boolean"
+    },
+    "data": {
+      "$ref": "#/$defs/AggregateOut"
+    },
+    "message": {
+      "default": "OK",
+      "title": "Message",
+      "type": "string"
+    }
+  },
+  "required": [
+    "data"
+  ],
+  "title": "Envelope[AggregateOut]",
+  "type": "object"
+}

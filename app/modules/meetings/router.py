@@ -73,6 +73,7 @@ def history(
                 "mode": meeting.mode,
                 "status": meeting.status,
                 "student_id": meeting.student_id,
+                "student_ids": meeting.student_ids,
                 "created_at": meeting.created_at,
                 "ended_at": meeting.ended_at,
                 "participant_count": sum(
@@ -177,9 +178,14 @@ def update(meeting_id: str, data: MeetingUpdate, user: CurrentUser, db: DB):
 
 
 @router.delete("/{meeting_id}")
-def delete(meeting_id: str, user: CurrentUser, db: DB):
-    """Soft delete: hidden from history, detail and join; anyone but the owner gets 404."""
-    return ok(MeetingService(db).soft_delete(meeting_id, user), "Meeting deleted")
+async def delete(meeting_id: str, request: Request, user: CurrentUser, db: DB):
+    """Soft delete: hidden from history, detail and join; anyone but the owner gets 404.
+
+    Open sockets of the room are closed, as in BE Tiền's delete.
+    """
+    result = await run_in_threadpool(MeetingService(db).soft_delete, meeting_id, user)
+    await request.app.state.manager.close_room(meeting_id)
+    return ok(result, "Meeting deleted")
 
 
 @router.post("/{meeting_id}/join", response_model=Envelope[MeetingOut])

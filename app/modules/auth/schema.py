@@ -49,7 +49,8 @@ class TokenOut(BaseModel):
 
 class UserOut(ORMModel):
     id: str
-    email: EmailStr
+    # Validated when registered; output must not fail for stored addresses (e.g. admin list).
+    email: str
     full_name: str
     role: Literal["teacher", "student", "admin"]
     created_at: datetime

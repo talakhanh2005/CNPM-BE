@@ -111,6 +111,8 @@ class MeetingOut(ORMModel):
     code: str
     teacher_id: str
     student_id: str | None = None
+    # All student memberships, including students who left (BE Tiền).
+    student_ids: list[str] = []
     mode: Literal["realtime", "after_session"] = "realtime"
     status: Literal["scheduled", "ongoing", "ended"]
     created_at: datetime
@@ -133,6 +135,7 @@ class MeetingHistoryItem(BaseModel):
     mode: Literal["realtime", "after_session"]
     status: Literal["scheduled", "ongoing", "ended"]
     student_id: str | None
+    student_ids: list[str] = []
     created_at: datetime
     ended_at: datetime | None
     participant_count: int = 0

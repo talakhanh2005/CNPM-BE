@@ -50,15 +50,21 @@ class ReportService:
 
     def recording(self, recording_id, user, selection):
         recording = RecordingService(self.db).require(recording_id, user)
+        # The stored recording decides who the video belongs to, never the AI payload (BE Tiền).
+        identity = {
+            "meeting_id": recording.meeting_id,
+            "recording_id": recording.id,
+            "student_id": recording.student_id,
+        }
         stored = self.repo.analysis(recording_id)
         if not stored:
-            return self.pack({}, [], 0, selection, "none", recording.status)
+            return {**self.pack({}, [], 0, selection, "none", recording.status), **identity}
         result = BatchResult.model_validate(stored.result)
         timeline = sorted(result.timeline, key=lambda p: p.timestamp)
-        return self.pack(
+        report = self.pack(
             result.sample_counts,
             [
-                {**p.model_dump(), "recording_id": recording_id}
+                {**p.model_dump(), "recording_id": recording_id, "student_id": recording.student_id}
                 for p in timeline[selection.offset : selection.offset + selection.limit]
             ],
             len(timeline),
@@ -68,26 +74,35 @@ class ReportService:
             result.summary,
             result.mock,
         )
+        return {**report, **identity}
 
     def meeting(self, meeting_id, user, selection):
+        return {**self._meeting(meeting_id, user, selection), "meeting_id": meeting_id}
+
+    def _meeting(self, meeting_id, user, selection):
         meeting = MeetingService(self.db).require(meeting_id, user, owner=True)
         if meeting.mode != "after_session":
             # README 1.2: a Report exists only for post-session analysis (contract v1 section 4).
             raise AppError(409, "INVALID_MEETING_MODE", "Report exists only for after_session")
         statuses = self.repo.statuses(meeting_id)
-        # Batch counts are per recording, not per student: a student filter uses realtime data.
         batches = (
-            self.repo.batch_results(meeting_id)
-            if selection.source in {"auto", "batch"} and not selection.student_id
-            else []
+            self.repo.batch_results(meeting_id) if selection.source in {"auto", "batch"} else []
         )
+        if selection.student_id:
+            # Each recording is one student's camera, so a student filter keeps their videos.
+            batches = [row for row in batches if row[1].student_id == selection.student_id]
         if batches:
+            # Sum sample counts across recordings, never average per-recording percentages.
             counts, timeline, mock = Counter(), [], False
             for stored, recording in batches:
                 result = BatchResult.model_validate(stored.result)
                 counts.update(result.sample_counts)
                 timeline.extend(
-                    {**p.model_dump(), "recording_id": recording.id}
+                    {
+                        **p.model_dump(),
+                        "recording_id": recording.id,
+                        "student_id": recording.student_id,
+                    }
                     for p in sorted(result.timeline, key=lambda p: p.timestamp)
                 )
                 mock |= result.mock
