@@ -5,9 +5,27 @@ services:
     environment:
       # Ghi đè giá trị trong .env: trong mạng compose Mongo ở host "mongo", app luôn nghe 8000.
       MONGO_URI: mongodb://mongo:27017/face_emotion
+      # OpenEmotion chạy trên máy host; localhost trong container không phải máy host.
+      AI_BASE_URL: "${AI_DOCKER_BASE_URL:-http://host.docker.internal:9000}"
       PORT: "8000"
     ports:
       - "${PORT:-8000}:8000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: .
+    env_file: .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/face_emotion
+      AI_BASE_URL: "${AI_DOCKER_BASE_URL:-http://host.docker.internal:9000}"
+    # Dockerfile mặc định chạy API; worker cần entrypoint riêng.
+    entrypoint: ["python", "-m", "app.worker"]
+    # The image healthcheck targets the HTTP API; the worker intentionally has no HTTP port.
+    healthcheck:
+      disable: true
     depends_on:
       mongo:
         condition: service_healthy

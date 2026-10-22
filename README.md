@@ -46,6 +46,21 @@ Terminal thứ hai, cùng thư mục project:
 
 Worker cần chạy để job phân tích chuyển từ pending sang processing/completed. Auth, meeting, signaling và report rỗng có thể test trước khi cấu hình Cloudinary. Test tự động dùng bản giả trong `tests/` nên không cần credential bên ngoài.
 
+## Chạy bằng Docker Compose
+
+Khởi động OpenEmotion trên máy host ở cổng 9000 trước, sau đó từ thư mục `BE/cnpm-be` chạy:
+
+```bash
+docker compose up --build -d
+docker compose ps
+docker compose logs -f api worker
+```
+
+Compose chạy MongoDB, API và worker. API tự tạo tài khoản admin khi cả `ADMIN_EMAIL` và
+`ADMIN_PASSWORD` đã được đặt trong `.env`. Nếu email đó đã tồn tại, dữ liệu cũ không bị ghi đè;
+OpenEmotion chạy ngoài Docker nên Compose đổi `AI_BASE_URL` mặc định thành
+`http://host.docker.internal:9000`; có thể ghi đè bằng `AI_DOCKER_BASE_URL` trong `.env`.
+
 ## Test từng task
 
 ```powershell
