@@ -92,6 +92,9 @@ class Storage:
     def document_download_url(self, public_id):
         return "https://storage.test/signed-document"
 
+    def document_preview_url(self, public_id):
+        return "https://storage.test/inline-document"
+
 
 @pytest.fixture
 def env():

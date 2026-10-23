@@ -199,6 +199,72 @@ def test_websocket_frames_reconnect_and_teacher_rejection(env, room, frame_data)
         assert db.get(Participant, (room, "student")).status == "joined"
 
 
+def test_teacher_presents_document_and_late_joiner_receives_state(env, room):
+    upload = env.client.post(
+        f"/meetings/{room}/materials",
+        params={"filename": "lesson.pdf"},
+        content=b"%PDF-1.7\nlesson",
+        headers={**env.headers["teacher"], "Content-Type": "application/pdf"},
+    )
+    assert upload.status_code == 201, upload.text
+    material_id = upload.json()["data"]["id"]
+    detail = env.client.get(
+        f"/meetings/{room}/documents/{material_id}", headers=env.headers["student"]
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["data"]["preview_url"] == "https://storage.test/inline-document"
+    path = f"/ws/meetings/{room}"
+
+    with env.client.websocket_connect(path) as teacher:
+        connect(teacher, env.tokens["teacher"])
+        with env.client.websocket_connect(path) as student:
+            connect(student, env.tokens["student"])
+            assert teacher.receive_json()["data"]["type"] == "JOIN"
+
+            student.send_json(
+                {
+                    "type": "DOCUMENT_PRESENT",
+                    "payload": {"material_id": material_id, "page": 1},
+                }
+            )
+            assert student.receive_json()["data"]["code"] == "FORBIDDEN"
+
+            teacher.send_json(
+                {
+                    "type": "DOCUMENT_PRESENT",
+                    "payload": {"material_id": material_id, "page": 1},
+                }
+            )
+            event = student.receive_json()["data"]
+            assert event["type"] == "DOCUMENT_PRESENT"
+            assert event["payload"] == {"material_id": material_id, "page": 1}
+
+            assert (
+                env.client.post(f"/meetings/{room}/join", headers=env.headers["other"]).status_code
+                == 200
+            )
+            with env.client.websocket_connect(path) as late:
+                late.send_json({"type": "AUTH", "token": env.tokens["other"]})
+                joined = late.receive_json()["data"]
+                assert joined["presentation"] == {"material_id": material_id, "page": 1}
+                assert teacher.receive_json()["data"]["type"] == "JOIN"
+                assert student.receive_json()["data"]["type"] == "JOIN"
+
+                teacher.send_json(
+                    {
+                        "type": "DOCUMENT_PAGE",
+                        "payload": {"material_id": material_id, "page": 3},
+                    }
+                )
+                assert student.receive_json()["data"]["payload"]["page"] == 3
+                assert late.receive_json()["data"]["payload"]["page"] == 3
+
+                teacher.send_json({"type": "DOCUMENT_STOP", "payload": {}})
+                assert student.receive_json()["data"]["type"] == "DOCUMENT_STOP"
+                assert late.receive_json()["data"]["type"] == "DOCUMENT_STOP"
+                assert env.app.state.manager.presentation(room) is None
+
+
 def test_after_session_upload_auto_analysis_and_history(env, frame_data):
     room = env.client.post(
         "/meetings", json={"mode": "after_session"}, headers=env.headers["teacher"]

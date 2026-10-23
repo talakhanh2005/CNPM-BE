@@ -79,6 +79,7 @@ async def signaling(socket: WebSocket, meeting_id: str):
                 {
                     "type": "JOIN",
                     "sender_id": user.id,
+                    "presentation": state.manager.presentation(meeting_id),
                     "peers": [
                         {
                             "user_id": c.user_id,
@@ -171,6 +172,13 @@ async def signaling(socket: WebSocket, meeting_id: str):
                     # Transport loss/refresh is not an explicit departure from the meeting.
                     if explicit_leave and state.manager.current(connection):
                         await run_in_threadpool(service.leave, meeting_id, user)
+                        if connection.role == "teacher":
+                            state.manager.stop_presentation(meeting_id)
+                            await state.manager.broadcast(
+                                meeting_id,
+                                {"type": "DOCUMENT_STOP", "payload": {}},
+                                exclude=connection.user_id,
+                            )
                 finally:
                     await state.manager.disconnect(meeting_id, connection)
                 try:
