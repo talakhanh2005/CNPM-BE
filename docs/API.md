@@ -250,6 +250,10 @@ Cùng bảng `materials`, thêm upload multipart và quyền chia sẻ. Tài li�
 
 Giáo viên thấy thêm `shared_with`, `shared_with_all`, `revoked`, `revoked_at`, `share_path`, `share_expires_at`. Share token được che thành `***` trong access log.
 
+### Trình chiếu tài liệu trực tiếp
+
+Giáo viên có thể gửi `DOCUMENT_PRESENT`, `DOCUMENT_PAGE` và `DOCUMENT_STOP` qua WebSocket của phòng. Event chỉ chứa `material_id` và số trang; mỗi client tự gọi endpoint chi tiết tài liệu để lấy signed URL theo quyền của mình. Trạng thái đang trình chiếu nằm trong response `JOIN` để client reconnect hoặc vào muộn đồng bộ ngay. Xem [LIVE-DOCUMENT-PRESENTATION.md](LIVE-DOCUMENT-PRESENTATION.md) để biết đầy đủ luồng, giới hạn định dạng và kiểm thử.
+
 ## STUN/TURN cho FE
 
 Đặt `ICE_SERVERS` trong môi trường backend (ví dụ trong `.env.example`). Nếu `ICE_SERVERS` rỗng, backend dựng danh sách từ `STUN_URLS` (mặc định `stun:stun.l.google.com:19302`) và `TURN_URLS`/`TURN_USERNAME`/`TURN_CREDENTIAL`. Sau khi join, FE lấy `GET /meetings/M/ice-config` và tạo `new RTCPeerConnection({iceServers: response.data.iceServers})`. `turn_configured` chỉ xác nhận có URL TURN trong cấu hình, không phải đã kiểm tra được kết nối TURN. Không có cấu hình hạ tầng mặc định. Chỉ STUN có thể không đủ khi NAT khắt khe; cần TURN hợp lệ và kiểm thử thực tế hai mạng khác nhau. Có thể ép `iceTransportPolicy: "relay"` trong bài test FE để kiểm chứng TURN. Repo này không chứa FE nên việc truyền iceServers vào peer connection cần phía FE xác nhận.

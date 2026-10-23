@@ -164,6 +164,16 @@ class MaterialService:
             return url
         return self.storage.document_download_url(material.public_id)
 
+    def preview_url(self, material):
+        """Signed inline URL for browser-safe presentation formats."""
+        if material.resource_type == "image":
+            return self.download_url(material)
+        if material.content_type == "application/pdf" or (material.content_type or "").startswith(
+            "image/"
+        ):
+            return self.storage.document_preview_url(material.public_id)
+        return None
+
     # ------------------------------------------------------------------ BE B raw upload
 
     def validate(self, filename, content_type, data):

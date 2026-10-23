@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -68,9 +69,12 @@ class Settings(BaseSettings):
     turn_urls: list[str] = []
     turn_username: str = ""
     turn_credential: SecretStr = SecretStr("")
-    # Chatbot (contract v1 D5): Gemini only parses questions; empty key = rules only.
+    # Chatbot: the selected LLM only chooses existing safe timeline functions.
+    chat_llm_provider: Literal["auto", "openai", "gemini"] = "auto"
+    openai_api_key: SecretStr = SecretStr("")
+    openai_chat_model: str = "gpt-5.4-mini"
     gemini_api_key: SecretStr = SecretStr("")
-    chat_llm_model: str = "gemini-3.5-flash"
+    chat_llm_model: str = "gemini-3.8-flash"
     chat_llm_timeout_seconds: float = Field(default=20, gt=0)
     frame_slots: int = Field(default=8, ge=1)
     max_http_json_bytes: int = Field(default=1024 * 1024, ge=1024)

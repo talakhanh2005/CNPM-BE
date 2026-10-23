@@ -151,6 +151,19 @@ class CloudinaryStorage:
             **self.options,
         )
 
+    def document_preview_url(self, public_id, expires_in=300):
+        """Short-lived inline URL for authenticated PDF presentation."""
+        self.require_config()
+        return cloudinary.utils.private_download_url(
+            public_id,
+            "",
+            resource_type="raw",
+            type="authenticated",
+            attachment=False,
+            expires_at=int(time.time()) + expires_in,
+            **self.options,
+        )
+
     # ------------------------------------------------------------------
     # Generic media merged from BE A (images, audio, video, documents).
     # ------------------------------------------------------------------

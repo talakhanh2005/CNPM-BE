@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from app.integrations.ai_schema import BatchResult, Segment, TimelinePoint
 from app.modules.analysis.service import process_one
-from app.modules.chat.llm import GeminiIntentParser
+from app.modules.chat.llm import GeminiIntentParser, OpenAIIntentParser
 from app.modules.chat.parser import (
     FIND_EMOTION,
     GET_EMOTION_BY_TIME,
@@ -347,28 +347,24 @@ def test_chat_uses_llm_only_when_rules_fail(env):
 def test_gemini_parser_validates_output():
     sent = []
 
-    def gemini_reply(payload, finish="STOP", status=200):
-        text = payload if isinstance(payload, str) else json.dumps(payload)
-        body = {"candidates": [{"finishReason": finish, "content": {"parts": [{"text": text}]}}]}
+    def gemini_reply(name, args=None, finish="STOP", status=200):
+        part = {"functionCall": {"name": name, "args": args or {}}} if name else {"text": "no call"}
+        body = {"candidates": [{"finishReason": finish, "content": {"parts": [part]}}]}
         return httpx.Response(status, json=body)
 
-    good = {"intent": "FIND_EMOTION", "start_seconds": -1, "end_seconds": -1, "emotion": "happy"}
-    ranged = {
-        "intent": "GET_EMOTION_BY_TIME",
-        "start_seconds": 60,
-        "end_seconds": 120,
-        "emotion": "none",
-    }
+    good = {"start_seconds": -1, "end_seconds": -1, "emotion": "happy"}
+    ranged = {"start_seconds": 60, "end_seconds": 120}
     replies = [
-        gemini_reply(good),
-        gemini_reply(good, finish="SAFETY"),
-        gemini_reply("not json"),
-        gemini_reply({**good, "emotion": "none"}),
-        gemini_reply(ranged),
+        gemini_reply("find_emotion_occurrences", good),
+        gemini_reply("find_emotion_occurrences", good, finish="SAFETY"),
+        gemini_reply(None),
+        gemini_reply("find_emotion_occurrences", {**good, "emotion": "none"}),
+        gemini_reply("get_emotions_by_time", ranged),
+        gemini_reply("unsupported_question"),
         httpx.Response(200, json={"promptFeedback": {"blockReason": "SAFETY"}}),
         httpx.Response(401, json={"error": {"message": "bad key"}}),
         httpx.Response(503, json={}),  # transient overload: retried once...
-        gemini_reply(good),  # ...and the retry succeeds
+        gemini_reply("find_emotion_occurrences", good),  # ...and the retry succeeds
     ]
 
     def handler(request):
@@ -376,7 +372,7 @@ def test_gemini_parser_validates_output():
         return replies.pop(0)
 
     settings = SimpleNamespace(
-        chat_llm_model="gemini-3.5-flash",
+        chat_llm_model="gemini-3.8-flash",
         gemini_api_key=SimpleNamespace(get_secret_value=lambda: "test-key"),
         chat_llm_timeout_seconds=5,
     )
@@ -384,20 +380,69 @@ def test_gemini_parser_validates_output():
     first = parser.parse("q")
     assert (first.intent, first.emotion, first.start_seconds) == (FIND_EMOTION, "happy", None)
     request = sent[0]
-    assert request.url.path.endswith("/models/gemini-3.5-flash:generateContent")
+    assert request.url.path.endswith("/models/gemini-3.8-flash:generateContent")
     assert request.headers["x-goog-api-key"] == "test-key" and "test-key" not in str(request.url)
     body = json.loads(request.content)
-    assert body["generationConfig"]["responseMimeType"] == "application/json"
+    declarations = body["tools"][0]["functionDeclarations"]
+    assert {item["name"] for item in declarations} == {
+        "get_emotions_by_time",
+        "find_emotion_occurrences",
+        "unsupported_question",
+    }
+    assert body["toolConfig"]["functionCallingConfig"]["mode"] == "ANY"
     assert body["contents"][0]["parts"][0]["text"] == "q"  # only the question is sent
     assert parser.parse("q") is None  # stopped by a safety filter
-    assert parser.parse("q") is None  # invalid JSON
+    assert parser.parse("q") is None  # missing function call
     assert parser.parse("q") is None  # FIND_EMOTION without an emotion
     parsed = parser.parse("q")
     assert (parsed.start_seconds, parsed.end_seconds, parsed.emotion) == (60, 120, None)
+    assert parser.parse("q").intent == UNKNOWN
     assert parser.parse("q") is None  # prompt blocked
     assert parser.parse("q") is None  # HTTP 401: no retry
     assert parser.parse("q").emotion == "happy"  # 503 then success
     assert not replies
+
+
+def test_openai_parser_uses_strict_existing_functions():
+    sent = []
+
+    def handler(request):
+        sent.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "get_emotions_by_time",
+                        "arguments": json.dumps({"start_seconds": -1, "end_seconds": -1}),
+                    }
+                ]
+            },
+        )
+
+    settings = SimpleNamespace(
+        openai_chat_model="gpt-5.4-mini",
+        openai_api_key=SimpleNamespace(get_secret_value=lambda: "test-openai-key"),
+        chat_llm_timeout_seconds=5,
+    )
+    parser = OpenAIIntentParser(settings, httpx.Client(transport=httpx.MockTransport(handler)))
+    parsed = parser.parse("Cho tôi tổng quan cảm xúc của cả buổi học")
+    assert (parsed.intent, parsed.start_seconds, parsed.end_seconds) == (
+        GET_EMOTION_BY_TIME,
+        None,
+        None,
+    )
+    request = sent[0]
+    assert request.url.path == "/v1/responses"
+    assert request.headers["authorization"] == "Bearer test-openai-key"
+    assert "test-openai-key" not in str(request.url)
+    body = json.loads(request.content)
+    assert body["model"] == "gpt-5.4-mini"
+    assert body["tool_choice"] == "required" and body["parallel_tool_calls"] is False
+    assert body["input"] == "Cho tôi tổng quan cảm xúc của cả buổi học"
+    assert all(tool["strict"] for tool in body["tools"])
+    assert all(tool["parameters"]["additionalProperties"] is False for tool in body["tools"])
 
 
 # ------------------------------------------------------------------ realtime + request id

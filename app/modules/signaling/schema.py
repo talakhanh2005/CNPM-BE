@@ -55,8 +55,46 @@ class FrameMessage(StrictMessage):
     payload: FrameIn
 
 
+class DocumentPresentPayload(StrictMessage):
+    material_id: str = Field(min_length=1, max_length=64)
+    page: int = Field(default=1, ge=1, le=10000)
+
+
+class DocumentPresentMessage(StrictMessage):
+    type: Literal["DOCUMENT_PRESENT"]
+    payload: DocumentPresentPayload
+
+
+class DocumentPagePayload(StrictMessage):
+    material_id: str = Field(min_length=1, max_length=64)
+    page: int = Field(ge=1, le=10000)
+
+
+class DocumentPageMessage(StrictMessage):
+    type: Literal["DOCUMENT_PAGE"]
+    payload: DocumentPagePayload
+
+
+class EmptyPayload(StrictMessage):
+    pass
+
+
+class DocumentStopMessage(StrictMessage):
+    type: Literal["DOCUMENT_STOP"]
+    payload: EmptyPayload = Field(default_factory=EmptyPayload)
+
+
 ClientMessage = Annotated[
-    Union[JoinMessage, DescriptionMessage, ICEMessage, StatusMessage, FrameMessage],
+    Union[
+        JoinMessage,
+        DescriptionMessage,
+        ICEMessage,
+        StatusMessage,
+        FrameMessage,
+        DocumentPresentMessage,
+        DocumentPageMessage,
+        DocumentStopMessage,
+    ],
     Field(discriminator="type"),
 ]
 message_adapter = TypeAdapter(ClientMessage)

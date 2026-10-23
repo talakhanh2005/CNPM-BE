@@ -14,6 +14,28 @@ class ConnectionManager:
         # One teacher plus students; membership rules live in MeetingService.
         self.max_room_connections = max_room_connections
         self.users = {}
+        # Presentation state is intentionally in-memory like room presence. It
+        # lets reconnecting/late participants receive the active document.
+        self.presentations = {}
+
+    def presentation(self, room):
+        return self.presentations.get(room)
+
+    def present_document(self, room, material_id, page=1):
+        state = {"material_id": material_id, "page": page}
+        self.presentations[room] = state
+        return state
+
+    def change_document_page(self, room, material_id, page):
+        current = self.presentations.get(room)
+        if current is None or current["material_id"] != material_id:
+            raise AppError(409, "PRESENTATION_NOT_ACTIVE", "Document is not being presented")
+        current = {**current, "page": page}
+        self.presentations[room] = current
+        return current
+
+    def stop_presentation(self, room):
+        return self.presentations.pop(room, None)
 
     async def connect(self, room, socket, user):
         members = [c for c in self.repo.members(room) if c.user_id != user.id]
@@ -90,5 +112,6 @@ class ConnectionManager:
                 pass
 
     async def close_room(self, room):
+        self.stop_presentation(room)
         await self.broadcast(room, {"type": "MEETING_ENDED"})
         await asyncio.gather(*(self.close_user(room, c.user_id) for c in self.repo.members(room)))

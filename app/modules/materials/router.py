@@ -190,6 +190,7 @@ def get_document(meeting_id: str, document_id: str, request: Request, user: Curr
         {
             **material_out(material, meeting.teacher_id == user.id),
             "download_url": service.download_url(material),
+            "preview_url": service.preview_url(material),
             "expires_in": DOWNLOAD_URL_TTL_SECONDS,
         }
     )
